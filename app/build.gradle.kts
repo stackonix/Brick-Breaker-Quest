@@ -19,9 +19,9 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    // Play Store identity (permanent once published). Uses the stackonix domain so it is unique.
+    // Play Store identity (permanent once published). Matches the "Brick Smash: Ball Breaker" title.
     // The Kotlin namespace above stays com.brickbreaker.game: it is internal and users never see it.
-    applicationId = "com.stackonix.bricksmash"
+    applicationId = "com.bricksmash.ballbreaker"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
