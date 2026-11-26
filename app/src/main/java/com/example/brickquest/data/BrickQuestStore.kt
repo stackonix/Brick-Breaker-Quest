@@ -15,16 +15,29 @@ private val Context.brickQuestDataStore: DataStore<Preferences> by preferencesDa
     name = "brick_breaker_quest_store"
 )
 
-const val TOTAL_QUEST_STAGES = 30
+/** All quest stages are generated procedurally (see engine/StageGenerator.kt). */
+const val TOTAL_QUEST_STAGES = com.example.brickquest.engine.MAX_STAGE
 
+/**
+ * Ball skins unlocked with total stars. The ARGB colors drive the generic glow renderer;
+ * the first four skins keep their hand-made look.
+ */
 enum class BallSkin(
     val displayName: String,
-    val unlockStars: Int
+    val unlockStars: Int,
+    val glowArgb: Long,
+    val ringArgb: Long,
+    val coreArgb: Long
 ) {
-    NEON_PEARL("Neon Pearl", 0),
-    STARLIGHT("Starlight", 0),
-    SOLAR_FIRE("Solar Fire", 6),
-    CYBER_MINT("Cyber Mint", 15)
+    NEON_PEARL("Neon Pearl", 0, 0xFFE879F9, 0xFFF5D0FE, 0xFFFFFFFF),
+    STARLIGHT("Starlight", 0, 0xFF38BDF8, 0xFF7DD3FC, 0xFFFFFFFF),
+    SOLAR_FIRE("Solar Fire", 6, 0xFFFF7A1A, 0xFFFACC15, 0xFFFFFBEB),
+    CYBER_MINT("Cyber Mint", 15, 0xFF34D399, 0xFF6EE7B7, 0xFFFFFFFF),
+    ROYAL_GOLD("Royal Gold", 45, 0xFFFBBF24, 0xFFFDE68A, 0xFFFFFFFF),
+    PLASMA_ROSE("Plasma Rose", 150, 0xFFF43F5E, 0xFFFDA4AF, 0xFFFFF1F2),
+    AQUA_NOVA("Aqua Nova", 400, 0xFF06B6D4, 0xFFA5F3FC, 0xFFFFFFFF),
+    VOID_VIOLET("Void Violet", 900, 0xFF8B5CF6, 0xFFC4B5FD, 0xFFF5F3FF),
+    LEGEND_WHITE("Legend", 2000, 0xFFF8FAFC, 0xFFE2E8F0, 0xFFFFFFFF)
 }
 
 data class BrickQuestProgress(
@@ -86,9 +99,17 @@ class BrickQuestStore(private val context: Context) {
             val nextStage = (stage + 1).coerceAtMost(TOTAL_QUEST_STAGES)
             if (nextStage > currentHighest) {
                 prefs[Keys.HIGHEST_STAGE] = nextStage
-                // Reward player with bonus power-ups on first clear of a new stage
-                prefs[Keys.LIGHTNING_COUNT] = ((prefs[Keys.LIGHTNING_COUNT] ?: 5) + 1).coerceAtMost(99)
-                prefs[Keys.EXTRA_BALLS_COUNT] = ((prefs[Keys.EXTRA_BALLS_COUNT] ?: 5) + 1).coerceAtMost(99)
+                // First-clear rewards: every 3rd stage +1 Lightning, every 5th +1 Ball Storm,
+                // boss stages (every 10th) +2 of each. Keeps power-ups valuable over 1500 stages.
+                val boss = stage % 10 == 0
+                val lightningGain = (if (stage % 3 == 0) 1 else 0) + (if (boss) 2 else 0)
+                val ballsGain = (if (stage % 5 == 0) 1 else 0) + (if (boss) 2 else 0)
+                if (lightningGain > 0) {
+                    prefs[Keys.LIGHTNING_COUNT] = ((prefs[Keys.LIGHTNING_COUNT] ?: 5) + lightningGain).coerceAtMost(99)
+                }
+                if (ballsGain > 0) {
+                    prefs[Keys.EXTRA_BALLS_COUNT] = ((prefs[Keys.EXTRA_BALLS_COUNT] ?: 5) + ballsGain).coerceAtMost(99)
+                }
             }
         }
     }

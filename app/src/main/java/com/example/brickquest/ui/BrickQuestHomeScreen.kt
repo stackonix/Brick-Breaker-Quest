@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,6 +68,8 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.brickquest.data.BallSkin
 import com.example.brickquest.data.BrickQuestProgress
+import com.example.brickquest.data.TOTAL_QUEST_STAGES
+import com.example.brickquest.engine.StageWorlds
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -154,6 +157,15 @@ fun DrawScope.drawBallSkinGraphic(
             drawCircle(color = MINT_MID, radius = radius * 1.38f, center = center)
             drawCircle(color = MINT_RING, radius = radius * 1.02f, center = center)
             drawCircle(color = Color.White, radius = radius * 0.68f, center = center)
+        }
+
+        else -> {
+            // Generic glow look for the newer skins (colors come from BallSkin)
+            val glow = Color(skin.glowArgb)
+            drawCircle(color = glow.copy(alpha = 0.27f), radius = radius * 1.95f, center = center)
+            drawCircle(color = glow.copy(alpha = 0.53f), radius = radius * 1.38f, center = center)
+            drawCircle(color = Color(skin.ringArgb), radius = radius * 1.02f, center = center)
+            drawCircle(color = Color(skin.coreArgb), radius = radius * 0.68f, center = center)
         }
     }
 }
@@ -382,7 +394,7 @@ fun BrickQuestHomeScreen(
                             color = Color.White
                         )
                         Text(
-                            text = "Stage ${progress.highestUnlockedStage} Unlocked  •  30 Levels",
+                            text = "Stage ${progress.highestUnlockedStage}  •  World ${StageWorlds.worldIndex(progress.highestUnlockedStage) + 1}: ${StageWorlds.name(StageWorlds.worldIndex(progress.highestUnlockedStage))}  •  $TOTAL_QUEST_STAGES Levels",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = Color(0xFFE0F2FE),
                             maxLines = 1,
@@ -439,7 +451,7 @@ fun BrickQuestHomeScreen(
                             .background(Color(0x3038BDF8))
                     )
 
-                    // Compact 4-Orb Ball Skins Selector
+                    // Ball skin selector (scrolls sideways: there are more skins than fit in one row)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -461,8 +473,10 @@ fun BrickQuestHomeScreen(
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         BallSkin.entries.forEach { skin ->
@@ -473,7 +487,7 @@ fun BrickQuestHomeScreen(
                                 unlocked = unlocked,
                                 selected = selected,
                                 onClick = { onSelectSkin(skin) },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.width(62.dp)
                             )
                         }
                     }

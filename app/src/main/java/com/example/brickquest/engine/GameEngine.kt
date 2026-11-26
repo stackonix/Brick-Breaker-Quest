@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -27,7 +28,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
@@ -76,9 +76,12 @@ private class NativeRenderCache {
     var lastH = -1
     var metrics = ArenaMetrics(0f, 0f, 1f, 1f, 1f)
     var brickCornerPx = 10f
+    var hpTextSize = 24f
 
-    // Cached static arena backdrop + neon outer frame bitmap
+    // Cached static arena backdrop + neon outer frame bitmap (arena-sized, not full screen)
     var arenaFrameBitmap: Bitmap? = null
+    var arenaFrameLeft: Float = 0f
+    var arenaFrameTop: Float = 0f
 
     // Cached pre-rendered ball sprite bitmap (rebuilt ONLY if skin or ball radius changes)
     var ballSpriteBitmap: Bitmap? = null
@@ -162,7 +165,8 @@ private class NativeRenderCache {
             bombBadgePaint.strokeWidth = 2.0f * density
             pickupStrokePaint.strokeWidth = (cs * 0.062f).coerceAtLeast(2.0f)
             particleStrokePaint.strokeWidth = 1.5f * density
-            brickHpPaint.textSize = (cs * 0.40f).coerceIn(18f, 44f)
+            hpTextSize = (cs * 0.40f).coerceIn(18f, 44f)
+            brickHpPaint.textSize = hpTextSize
             rebuildArenaFrameBitmap(iw, ih, density)
         }
         return metrics
@@ -170,9 +174,16 @@ private class NativeRenderCache {
 
     private fun rebuildArenaFrameBitmap(w: Int, h: Int, density: Float) {
         arenaFrameBitmap?.recycle()
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val c = AndroidCanvas(bmp)
         val m = metrics
+        // Only the arena (+ room for the glow) is baked, so each frame blends far fewer pixels.
+        val pad = (6f * density).coerceAtLeast(4f)
+        val bmpW = (m.arenaWidth + pad * 2f).toInt().coerceIn(1, w)
+        val bmpH = (m.arenaHeight + pad * 2f).toInt().coerceIn(1, h)
+        arenaFrameLeft = m.offsetX - pad
+        arenaFrameTop = m.offsetY - pad
+        val bmp = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
+        val c = AndroidCanvas(bmp)
+        c.translate(-arenaFrameLeft, -arenaFrameTop)
         val ox = m.offsetX
         val oy = m.offsetY
         val aw = m.arenaWidth
@@ -315,6 +326,26 @@ private class NativeRenderCache {
                 corePaint.color = android.graphics.Color.WHITE
                 c.drawCircle(half, half, r * 0.68f, corePaint)
             }
+
+            else -> {
+                // Generic glow skin driven by the skin's colors
+                val glowRgb = skin.glowArgb and 0x00FFFFFFL
+                glowPaint.shader = RadialGradient(
+                    half, half, r * 2.15f,
+                    intArrayOf(
+                        (glowRgb or 0xE0000000L).toInt(),
+                        (glowRgb or 0x58000000L).toInt(),
+                        glowRgb.toInt()
+                    ),
+                    floatArrayOf(0f, 0.55f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+                c.drawCircle(half, half, r * 2.15f, glowPaint)
+                corePaint.color = skin.ringArgb.toInt()
+                c.drawCircle(half, half, r * 1.05f, corePaint)
+                corePaint.color = skin.coreArgb.toInt()
+                c.drawCircle(half, half, r * 0.68f, corePaint)
+            }
         }
 
         ballSpriteBitmap = bmp
@@ -326,8 +357,9 @@ private class NativeRenderCache {
 }
 
 fun calculateArenaMetrics(width: Float, height: Float): ArenaMetrics {
-    val marginX = width * 0.035f
-    val marginY = height * 0.02f
+    // Small margins so the arena uses (almost) the full screen width on phones.
+    val marginX = width * 0.012f
+    val marginY = height * 0.01f
     val availW = (width - marginX * 2f).coerceAtLeast(1f)
     val availH = (height - marginY * 2f).coerceAtLeast(1f)
     val cellSize = min(availW / ARENA_COLS, availH / ARENA_ROWS)
@@ -511,7 +543,7 @@ class GameEngine(
 
             // 1. Pre-baked Arena Backdrop + Danger Dashed Line + Neon Outer Border (1 single blit!)
             cache.arenaFrameBitmap?.let { frameBmp ->
-                nc.drawBitmap(frameBmp, 0f, 0f, null)
+                nc.drawBitmap(frameBmp, cache.arenaFrameLeft, cache.arenaFrameTop, null)
             }
 
             // 2. Glowing Neon Bricks + Cached HP Text
@@ -521,7 +553,7 @@ class GameEngine(
             val bombBadgePaint = cache.bombBadgePaint
             val brickHpPaint = cache.brickHpPaint
             val corner = cache.brickCornerPx
-            val textBaselineOffset = -(brickHpPaint.descent() + brickHpPaint.ascent()) * 0.5f
+            val baseHpTextSize = cache.hpTextSize
             val bricks = simulation.bricks
 
             for (i in 0 until bricks.size) {
@@ -564,10 +596,13 @@ class GameEngine(
                     nc.drawText(badgeLabel, right - bw * 0.22f, top + bh * 0.31f, cache.badgePaint)
                 }
 
+                // 3-digit HP gets a smaller font so it always fits inside the brick
+                val hpSize = if (brick.hp >= 100) baseHpTextSize * 0.78f else baseHpTextSize
+                if (brickHpPaint.textSize != hpSize) brickHpPaint.textSize = hpSize
                 nc.drawText(
                     hpString(brick.hp),
                     left + bw * 0.5f,
-                    top + bh * 0.5f + textBaselineOffset,
+                    top + bh * 0.5f + hpSize * 0.36f,
                     brickHpPaint
                 )
             }
@@ -680,7 +715,7 @@ class GameEngine(
             for (i in 0 until beams.size) {
                 val beam = beams[i]
                 val a = beam.life.coerceIn(0f, 1f)
-                val beamRgb = beam.color.toArgb() and 0x00FFFFFF
+                val beamRgb = beam.rgb and 0x00FFFFFF
                 val x1: Float
                 val y1: Float
                 val x2: Float
@@ -715,7 +750,7 @@ class GameEngine(
                 val py = oy + p.y * cs
                 val halfPs = p.size * cs * 0.5f
                 val a = p.alpha.coerceIn(0f, 1f)
-                val pRgb = p.color.toArgb() and 0x00FFFFFF
+                val pRgb = p.rgb
 
                 pFill.color = (((a * 0.24f) * 255f).toInt() shl 24) or pRgb
                 nc.drawRect(px - halfPs, py - halfPs, px + halfPs, py + halfPs, pFill)
@@ -744,10 +779,11 @@ class GameEngine(
             }
 
             // 7. Interactive Glowing Neon Paddle (visible during shooting or while power-ups active)
-            val showPaddle = simulation.phase == TurnPhase.SHOOTING ||
+            // The paddle only matters when it can catch a capsule, bounce balls (wide paddle)
+            // or fire lasers, so it is hidden otherwise to keep the arena clean.
+            val showPaddle = simulation.fallingPowerUps.isNotEmpty() ||
                 simulation.paddleExpandTimer > 0f ||
-                simulation.laserBeamTimer > 0f ||
-                simulation.fallingPowerUps.isNotEmpty()
+                simulation.laserBeamTimer > 0f
             if (showPaddle) {
                 val px = ox + simulation.paddleX * cs
                 val py = oy + simulation.paddleY * cs
@@ -823,7 +859,7 @@ class GameEngine(
                 val ft = floats[i]
                 val life = ft.life.coerceIn(0f, 1f)
                 labelPaint.textSize = (cs * 0.34f).coerceIn(18f, 34f)
-                val ftRgb = ft.color.toArgb() and 0x00FFFFFF
+                val ftRgb = ft.rgb and 0x00FFFFFF
                 labelPaint.color = ((life * 255f).toInt() shl 24) or ftRgb
                 nc.drawText(ft.text, ox + ft.x * cs, oy + ft.y * cs, labelPaint)
             }
@@ -852,6 +888,9 @@ fun GameEngineLoop(
     onAudioCue: (GameAudioCue) -> Unit,
     onFrameSynced: (frameTimeMillis: Long) -> Unit
 ) {
+    // Always call the latest callbacks (e.g. after sound is toggled) without restarting the loop.
+    val latestAudioCue by rememberUpdatedState(onAudioCue)
+    val latestFrameSynced by rememberUpdatedState(onFrameSynced)
     LaunchedEffect(engine, isPaused) {
         if (isPaused) {
             engine.resetFrameClock()
@@ -862,9 +901,9 @@ fun GameEngineLoop(
             withFrameNanos { frameTimeNanos ->
                 engine.stepFrameNanos(
                     frameTimeNanos = frameTimeNanos,
-                    onAudioCue = onAudioCue
+                    onAudioCue = latestAudioCue
                 )
-                onFrameSynced(frameTimeNanos / 1_000_000L)
+                latestFrameSynced(frameTimeNanos / 1_000_000L)
             }
         }
     }

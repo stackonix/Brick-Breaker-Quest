@@ -1,12 +1,13 @@
 package com.example.data
 
 import android.content.Context
-import android.media.AudioManager
-import android.media.ToneGenerator
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import com.example.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,87 +16,120 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
 /**
- * Lightweight, non-blocking offline sound & haptic feedback controller.
- * All AudioService / Vibrator Binder IPC runs off the Main thread via a conflated channel
- * so 60 FPS gameplay frames are NEVER stalled by audio or vibration calls.
+ * Low-latency game audio + haptics.
+ *
+ * Sounds use [SoundPool] with short preloaded clips (res/raw/sfx_*.wav). SoundPool.play() is
+ * non-blocking and mixes up to [MAX_STREAMS] sounds at once, so rapid brick hits no longer cut
+ * each other off the way the old ToneGenerator did.
+ * Vibration still goes through a background channel because Vibrator calls are Binder IPC.
  */
-class SoundHapticManager(private val context: Context) {
+class SoundHapticManager(context: Context) {
 
-    private data class FeedbackEvent(
-        val toneType: Int,
-        val toneDurationMs: Int,
-        val vibDurationMs: Long,
-        val vibAmplitude: Int,
-        val soundEnabled: Boolean,
-        val hapticsEnabled: Boolean
-    )
+    private val appContext = context.applicationContext
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val channel = Channel<FeedbackEvent>(capacity = Channel.CONFLATED)
+    private val soundPool: SoundPool = SoundPool.Builder()
+        .setMaxStreams(MAX_STREAMS)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+        )
+        .build()
 
     @Volatile
-    private var toneGenerator: ToneGenerator? = null
+    private var loaded = HashSet<Int>()
+
+    private val sfxTap: Int
+    private val sfxHit: Int
+    private val sfxBreak: Int
+    private val sfxPower: Int
+    private val sfxWin: Int
+    private val sfxLose: Int
+
+    private data class HapticEvent(val durationMs: Long, val amplitude: Int)
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val hapticChannel = Channel<HapticEvent>(capacity = Channel.CONFLATED)
 
     @Volatile
     private var cachedVibrator: Vibrator? = null
 
     init {
+        soundPool.setOnLoadCompleteListener { _, sampleId, status ->
+            if (status == 0) {
+                loaded = HashSet(loaded).apply { add(sampleId) }
+            }
+        }
+        sfxTap = soundPool.load(appContext, R.raw.sfx_tap, 1)
+        sfxHit = soundPool.load(appContext, R.raw.sfx_hit, 1)
+        sfxBreak = soundPool.load(appContext, R.raw.sfx_break, 1)
+        sfxPower = soundPool.load(appContext, R.raw.sfx_power, 1)
+        sfxWin = soundPool.load(appContext, R.raw.sfx_win, 1)
+        sfxLose = soundPool.load(appContext, R.raw.sfx_lose, 1)
+
         scope.launch {
             cachedVibrator = resolveVibrator()
-            for (event in channel) {
-                if (event.soundEnabled) {
-                    runCatching { getToneGenerator()?.startTone(event.toneType, event.toneDurationMs) }
-                }
-                if (event.hapticsEnabled && event.vibDurationMs > 0L) {
-                    vibrateNow(event.vibDurationMs, event.vibAmplitude)
-                }
+            for (event in hapticChannel) {
+                vibrateNow(event.durationMs, event.amplitude)
             }
         }
     }
 
-    private fun getToneGenerator(): ToneGenerator? {
-        if (toneGenerator == null) {
-            toneGenerator = runCatching {
-                ToneGenerator(AudioManager.STREAM_MUSIC, 50)
-            }.getOrNull()
-        }
-        return toneGenerator
+    private fun play(soundId: Int, volume: Float, rate: Float = 1f) {
+        if (soundId == 0 || soundId !in loaded) return
+        runCatching { soundPool.play(soundId, volume, volume, 1, 0, rate) }
+    }
+
+    private fun haptic(enabled: Boolean, durationMs: Long, amplitude: Int) {
+        if (enabled) hapticChannel.trySend(HapticEvent(durationMs, amplitude))
+    }
+
+    /** UI taps and buttons. */
+    fun playTap(soundEnabled: Boolean, hapticsEnabled: Boolean) {
+        if (soundEnabled) play(sfxTap, 0.55f)
+        haptic(hapticsEnabled, 12L, 50)
+    }
+
+    /** Ball hits a brick without breaking it. */
+    fun playHit(soundEnabled: Boolean) {
+        if (soundEnabled) play(sfxHit, 0.35f)
+    }
+
+    /** A brick breaks. */
+    fun playBreak(soundEnabled: Boolean, hapticsEnabled: Boolean) {
+        if (soundEnabled) play(sfxBreak, 0.6f)
+        haptic(hapticsEnabled, 14L, 65)
+    }
+
+    /** Power-up, laser, pickup, bomb. */
+    fun playCorrect(soundEnabled: Boolean, hapticsEnabled: Boolean) {
+        if (soundEnabled) play(sfxPower, 0.7f)
+        haptic(hapticsEnabled, 22L, 100)
+    }
+
+    fun playWrong(soundEnabled: Boolean, hapticsEnabled: Boolean) {
+        if (soundEnabled) play(sfxLose, 0.8f)
+        haptic(hapticsEnabled, 40L, 85)
+    }
+
+    /** Kept for compatibility: same as [playBreak]. */
+    fun playCountdownTick(soundEnabled: Boolean, hapticsEnabled: Boolean) = playBreak(soundEnabled, hapticsEnabled)
+
+    fun playWinFanfare(soundEnabled: Boolean, hapticsEnabled: Boolean) {
+        if (soundEnabled) play(sfxWin, 0.85f)
+        haptic(hapticsEnabled, 48L, 130)
     }
 
     private fun resolveVibrator(): Vibrator? = runCatching {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            val manager = appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
             manager?.defaultVibrator
         } else {
             @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         }
     }.getOrNull()
-
-    fun playTap(soundEnabled: Boolean, hapticsEnabled: Boolean) {
-        if (!soundEnabled && !hapticsEnabled) return
-        channel.trySend(FeedbackEvent(ToneGenerator.TONE_PROP_BEEP, 28, 12L, 50, soundEnabled, hapticsEnabled))
-    }
-
-    fun playCorrect(soundEnabled: Boolean, hapticsEnabled: Boolean) {
-        if (!soundEnabled && !hapticsEnabled) return
-        channel.trySend(FeedbackEvent(ToneGenerator.TONE_PROP_ACK, 95, 22L, 100, soundEnabled, hapticsEnabled))
-    }
-
-    fun playWrong(soundEnabled: Boolean, hapticsEnabled: Boolean) {
-        if (!soundEnabled && !hapticsEnabled) return
-        channel.trySend(FeedbackEvent(ToneGenerator.TONE_PROP_NACK, 100, 40L, 85, soundEnabled, hapticsEnabled))
-    }
-
-    fun playCountdownTick(soundEnabled: Boolean, hapticsEnabled: Boolean) {
-        if (!soundEnabled && !hapticsEnabled) return
-        channel.trySend(FeedbackEvent(ToneGenerator.TONE_PROP_BEEP2, 48, 14L, 65, soundEnabled, hapticsEnabled))
-    }
-
-    fun playWinFanfare(soundEnabled: Boolean, hapticsEnabled: Boolean) {
-        if (!soundEnabled && !hapticsEnabled) return
-        channel.trySend(FeedbackEvent(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 220, 48L, 130, soundEnabled, hapticsEnabled))
-    }
 
     private fun vibrateNow(durationMs: Long, amplitude: Int) {
         runCatching {
@@ -112,9 +146,12 @@ class SoundHapticManager(private val context: Context) {
     }
 
     fun release() {
-        channel.close()
+        hapticChannel.close()
         scope.cancel()
-        runCatching { toneGenerator?.release() }
-        toneGenerator = null
+        runCatching { soundPool.release() }
+    }
+
+    private companion object {
+        const val MAX_STREAMS = 8
     }
 }

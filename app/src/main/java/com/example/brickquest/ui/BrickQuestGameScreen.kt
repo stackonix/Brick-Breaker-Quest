@@ -68,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.BuildConfig
 import com.example.brickquest.data.BrickQuestProgress
 import com.example.brickquest.data.TOTAL_QUEST_STAGES
 import com.example.brickquest.engine.BrickBreakerCanvas
@@ -116,6 +117,7 @@ fun BrickQuestGameScreen(
     var hudMultiBallSec by remember(sessionNonce) { mutableIntStateOf(0) }
     var hudLaserSec by remember(sessionNonce) { mutableIntStateOf(0) }
     var hudPaddleSec by remember(sessionNonce) { mutableIntStateOf(0) }
+    var hudTurnsLeft by remember(sessionNonce) { mutableIntStateOf(99) }
     val lastScoreSyncRef = remember(sessionNonce) { LongArray(1) { 0L } }
 
     fun syncHudFromEngine(frameTimeMillis: Long = -1L, force: Boolean = false) {
@@ -123,6 +125,10 @@ fun BrickQuestGameScreen(
         if (phaseChanged) hudPhase = gameEngine.phase
         if (hudTurbo != gameEngine.turboSpeed) hudTurbo = gameEngine.turboSpeed
         if (hudTurnNumber != gameEngine.turnNumber) hudTurnNumber = gameEngine.turnNumber
+        if (phaseChanged || force) {
+            val tl = gameEngine.turnsUntilDanger
+            if (hudTurnsLeft != tl) hudTurnsLeft = tl
+        }
         val wantHint = gameEngine.phase == TurnPhase.AIMING && !gameEngine.isDraggingAim && gameEngine.turnNumber == 1
         if (showDragHint != wantHint) showDragHint = wantHint
 
@@ -184,9 +190,9 @@ fun BrickQuestGameScreen(
                 GameAudioCue.LASER_OR_PICKUP ->
                     soundHaptic.playCorrect(progress.soundEnabled, progress.hapticsEnabled)
                 GameAudioCue.BRICK_BREAK ->
-                    soundHaptic.playCountdownTick(progress.soundEnabled, progress.hapticsEnabled)
+                    soundHaptic.playBreak(progress.soundEnabled, progress.hapticsEnabled)
                 GameAudioCue.HIT ->
-                    soundHaptic.playTap(progress.soundEnabled, false)
+                    soundHaptic.playHit(progress.soundEnabled)
             }
         },
         onFrameSynced = { frameTimeMillis ->
@@ -225,39 +231,6 @@ fun BrickQuestGameScreen(
                 }
             )
 
-            // ACTIVE TEMPORARY POWER-UP TIMER PILLS (Multi-Ball, Laser Beam, Wide Paddle)
-            if (hudMultiBallSec > 0 || hudLaserSec > 0 || hudPaddleSec > 0) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (hudMultiBallSec > 0) {
-                        ActivePowerUpTimerChip(
-                            label = "×2 MULTI-BALL ${hudMultiBallSec}s",
-                            accent = Color(0xFFEC4899),
-                            tag = "active_bonus_multiball"
-                        )
-                    }
-                    if (hudLaserSec > 0) {
-                        ActivePowerUpTimerChip(
-                            label = "⚡ LASER ${hudLaserSec}s",
-                            accent = Color(0xFF4ADE80),
-                            tag = "active_bonus_laser"
-                        )
-                    }
-                    if (hudPaddleSec > 0) {
-                        ActivePowerUpTimerChip(
-                            label = "↔ WIDE ${hudPaddleSec}s",
-                            accent = Color(0xFF38BDF8),
-                            tag = "active_bonus_paddle"
-                        )
-                    }
-                }
-            }
-
             // CENTER 60FPS CANVAS GAME ENGINE VIEWPORT
             Box(
                 modifier = Modifier
@@ -275,6 +248,56 @@ fun BrickQuestGameScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
+                // Power-up timers float over the arena so the arena never resizes mid-game
+                // (resizing used to move every brick and rebuild the arena bitmap = a visible hitch).
+                if (hudMultiBallSec > 0 || hudLaserSec > 0 || hudPaddleSec > 0) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (hudMultiBallSec > 0) {
+                            ActivePowerUpTimerChip(
+                                label = "×2 MULTI-BALL ${hudMultiBallSec}s",
+                                accent = Color(0xFFEC4899),
+                                tag = "active_bonus_multiball"
+                            )
+                        }
+                        if (hudLaserSec > 0) {
+                            ActivePowerUpTimerChip(
+                                label = "⚡ LASER ${hudLaserSec}s",
+                                accent = Color(0xFF4ADE80),
+                                tag = "active_bonus_laser"
+                            )
+                        }
+                        if (hudPaddleSec > 0) {
+                            ActivePowerUpTimerChip(
+                                label = "↔ WIDE ${hudPaddleSec}s",
+                                accent = Color(0xFF38BDF8),
+                                tag = "active_bonus_paddle"
+                            )
+                        }
+                    }
+                }
+
+                // Danger warning when the bricks are one drop away from the bottom line
+                if (hudPhase == TurnPhase.AIMING && hudTurnsLeft <= 1 && mode == BrickQuestMode.STAGE) {
+                    // Plain Text (not Surface): Material3 Surface would swallow aim touches.
+                    Text(
+                        text = "LAST TURN! Use ⚡ Lightning if needed",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black),
+                        color = Color(0xFFFECACA),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 84.dp)
+                            .background(Color(0xFF450A0A).copy(alpha = 0.9f), RoundedCornerShape(50))
+                            .border(1.4.dp, Color(0xFFF87171), RoundedCornerShape(50))
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
+
                 if (SHOW_FPS_OVERLAY) {
                     FpsOverlay(
                         modifier = Modifier
@@ -284,24 +307,21 @@ fun BrickQuestGameScreen(
                 }
 
                 if (showDragHint) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = BrickQuestColors.CardSurface.copy(alpha = 0.86f),
-                        border = BorderStroke(1.dp, BrickQuestColors.NeonCyan.copy(alpha = 0.7f)),
+                    // Plain Text (not Surface) so dragging can start on top of the hint.
+                    Text(
+                        text = "DRAG TO AIM  •  RELEASE TO SHOOT",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp
+                        ),
+                        color = BrickQuestColors.NeonCyanBright,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 34.dp)
-                    ) {
-                        Text(
-                            text = "DRAG TO AIM  •  RELEASE TO SHOOT",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.8.sp
-                            ),
-                            color = BrickQuestColors.NeonCyanBright,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
-                        )
-                    }
+                            .background(BrickQuestColors.CardSurface.copy(alpha = 0.86f), RoundedCornerShape(50))
+                            .border(1.dp, BrickQuestColors.NeonCyan.copy(alpha = 0.7f), RoundedCornerShape(50))
+                            .padding(horizontal = 16.dp, vertical = 7.dp)
+                    )
                 }
             }
 
@@ -388,11 +408,11 @@ fun BrickQuestGameScreen(
 }
 
 /**
- * Performance test switch. Shows "FPS xx | worst yy ms" over the arena.
- * Works in debug AND release so you can measure the optimized release build.
- * Set to false before publishing to the Play Store.
+ * Shows "FPS xx | worst yy ms" over the arena in DEBUG builds only.
+ * Release / Play Store builds never show it. To measure a release build temporarily,
+ * replace BuildConfig.DEBUG with true (and revert before publishing).
  */
-private const val SHOW_FPS_OVERLAY = true
+private val SHOW_FPS_OVERLAY: Boolean = BuildConfig.DEBUG
 
 /**
  * Lightweight FPS meter. Counts frame callbacks and the slowest frame in each
@@ -580,22 +600,21 @@ private fun ActivePowerUpTimerChip(
     accent: Color,
     tag: String
 ) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = accent.copy(alpha = 0.22f),
-        border = BorderStroke(1.2.dp, accent),
-        modifier = Modifier.testTag(tag)
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontWeight = FontWeight.Black,
-                letterSpacing = 0.6.sp
-            ),
-            color = Color.White,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-        )
-    }
+    // Plain Text (not Surface): these chips float over the arena and must not block touches.
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.6.sp
+        ),
+        color = Color.White,
+        modifier = Modifier
+            .testTag(tag)
+            .background(Color(0xFF0B1220).copy(alpha = 0.75f), RoundedCornerShape(50))
+            .background(accent.copy(alpha = 0.22f), RoundedCornerShape(50))
+            .border(1.2.dp, accent, RoundedCornerShape(50))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    )
 }
 
 @Composable
@@ -673,7 +692,11 @@ private fun GameBottomControlsBar(
                 border = BorderStroke(1.2.dp, BrickQuestColors.CardBorder)
             ) {
                 Text(
-                    text = if (mode == BrickQuestMode.STAGE) "STAGE $stageNumber" else "ENDLESS • WAVE $turnNumber",
+                    text = when {
+                        mode != BrickQuestMode.STAGE -> "ENDLESS • WAVE $turnNumber"
+                        stageNumber % 10 == 0 -> "BOSS • STAGE $stageNumber"
+                        else -> "STAGE $stageNumber"
+                    },
                     style = MaterialTheme.typography.labelLarge.copy(
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 1.sp
@@ -955,7 +978,7 @@ private fun StageClearOverlay(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "STAGE $stageNumber CLEAR!",
+                    text = if (stageNumber % 10 == 0) "BOSS DEFEATED!" else "STAGE $stageNumber CLEAR!",
                     style = MaterialTheme.typography.headlineSmall.copy(
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.2.sp
