@@ -45,12 +45,19 @@ enum class GameAudioCue {
     LASER_OR_PICKUP
 }
 
+/**
+ * [cellW] x [cellH] is one grid cell on screen. They can differ so the arena fills the space:
+ * the game logic stays a 9 x 12 grid, only the drawing is stretched vertically (capped).
+ * [cellSize] (= cellW) is used for sizes such as text, radii and stroke widths.
+ */
 data class ArenaMetrics(
     val offsetX: Float,
     val offsetY: Float,
     val cellSize: Float,
     val arenaWidth: Float,
-    val arenaHeight: Float
+    val arenaHeight: Float,
+    val cellW: Float = cellSize,
+    val cellH: Float = cellSize
 )
 
 private val CACHED_HP_STRINGS = Array(512) { it.toString() }
@@ -198,7 +205,7 @@ private class NativeRenderCache {
         c.drawRoundRect(ox, oy, ox + aw, oy + ah, corner, corner, bgPaint)
 
         // 2. Danger dashed line (row 10)
-        val dangerY = oy + DANGER_ROW * m.cellSize
+        val dangerY = oy + DANGER_ROW * m.cellH
         val dangerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             color = 0x57EF4444
@@ -356,21 +363,31 @@ private class NativeRenderCache {
     }
 }
 
+/** Max vertical stretch of a grid cell (cell height / cell width). */
+private const val MAX_CELL_STRETCH = 1.32f
+
 fun calculateArenaMetrics(width: Float, height: Float): ArenaMetrics {
     // Small margins so the arena uses (almost) the full screen width on phones.
     val marginX = width * 0.012f
     val marginY = height * 0.01f
     val availW = (width - marginX * 2f).coerceAtLeast(1f)
     val availH = (height - marginY * 2f).coerceAtLeast(1f)
-    val cellSize = min(availW / ARENA_COLS, availH / ARENA_ROWS)
-    val arenaW = cellSize * ARENA_COLS
-    val arenaH = cellSize * ARENA_ROWS
+    val fitW = availW / ARENA_COLS
+    val fitH = availH / ARENA_ROWS
+    // Phones (taller than 9:12): use the full width and stretch cells vertically to fill the
+    // height, up to MAX_CELL_STRETCH so bricks never look too tall. Tablets / wide: square cells.
+    val cellW = min(fitW, fitH)
+    val cellH = if (fitH > fitW) min(fitH, fitW * MAX_CELL_STRETCH) else cellW
+    val arenaW = cellW * ARENA_COLS
+    val arenaH = cellH * ARENA_ROWS
     return ArenaMetrics(
         offsetX = (width - arenaW) / 2f,
         offsetY = (height - arenaH) / 2f,
-        cellSize = cellSize,
+        cellSize = cellW,
         arenaWidth = arenaW,
-        arenaHeight = arenaH
+        arenaHeight = arenaH,
+        cellW = cellW,
+        cellH = cellH
     )
 }
 
@@ -475,8 +492,8 @@ class GameEngine(
     ) {
         if (canvasWidth <= 1f || canvasHeight <= 1f) return
         val m = calculateArenaMetrics(canvasWidth, canvasHeight)
-        val normX = (posX - m.offsetX) / m.cellSize
-        val normY = (posY - m.offsetY) / m.cellSize
+        val normX = (posX - m.offsetX) / m.cellW
+        val normY = (posY - m.offsetY) / m.cellH
         simulation.updateAimFromPointer(normX, normY)
         frameTick.longValue++
     }
@@ -488,7 +505,7 @@ class GameEngine(
     ) {
         if (canvasWidth <= 1f || canvasHeight <= 1f) return
         val m = calculateArenaMetrics(canvasWidth, canvasHeight)
-        val normX = (posX - m.offsetX) / m.cellSize
+        val normX = (posX - m.offsetX) / m.cellW
         simulation.updatePaddlePosition(normX)
         frameTick.longValue++
     }
@@ -532,6 +549,8 @@ class GameEngine(
         val ox = metrics.offsetX
         val oy = metrics.offsetY
         val cs = metrics.cellSize
+        val cw = metrics.cellW
+        val ch = metrics.cellH
         val aw = metrics.arenaWidth
         val ah = metrics.arenaHeight
         val ballRadiusPx = BALL_RADIUS * cs
@@ -559,10 +578,10 @@ class GameEngine(
             for (i in 0 until bricks.size) {
                 val brick = bricks[i]
                 val baseRgb = BrickQuestEngine.brickRgbForHp(brick.hp, brick.special)
-                val left = ox + brick.left * cs
-                val top = oy + brick.top * cs
-                val right = ox + brick.right * cs
-                val bottom = oy + brick.bottom * cs
+                val left = ox + brick.left * cw
+                val top = oy + brick.top * ch
+                val right = ox + brick.right * cw
+                val bottom = oy + brick.bottom * ch
                 val bw = right - left
                 val bh = bottom - top
 
@@ -619,8 +638,8 @@ class GameEngine(
                 val capTextOffset = -(cache.badgePaint.descent() + cache.badgePaint.ascent()) * 0.5f
                 for (i in 0 until fallingPowerUps.size) {
                     val fp = fallingPowerUps[i]
-                    val cx = ox + fp.x * cs
-                    val cy = oy + fp.y * cs
+                    val cx = ox + fp.x * cw
+                    val cy = oy + fp.y * ch
                     val pulse = 1f + 0.08f * sin(fp.pulsePhase)
                     val hw = capHalfW * pulse
                     val hh = capHalfH * pulse
@@ -661,8 +680,8 @@ class GameEngine(
             for (i in 0 until pickups.size) {
                 val pickup = pickups[i]
                 if (pickup.collected) continue
-                val cx = ox + pickup.cx * cs
-                val cy = oy + pickup.cy * cs
+                val cx = ox + pickup.cx * cw
+                val cy = oy + pickup.cy * ch
                 val pulse = 1f + 0.13f * sin(pickup.pulsePhase)
 
                 when (pickup.kind) {
@@ -721,10 +740,10 @@ class GameEngine(
                 val x2: Float
                 val y2: Float
                 if (beam.isHorizontal) {
-                    val y = oy + beam.gridCoord * cs
+                    val y = oy + beam.gridCoord * ch
                     x1 = ox + 4f; y1 = y; x2 = ox + aw - 4f; y2 = y
                 } else {
-                    val x = ox + beam.gridCoord * cs
+                    val x = ox + beam.gridCoord * cw
                     x1 = x; y1 = oy + 4f; x2 = x; y2 = oy + ah - 4f
                 }
                 laserPaint.strokeWidth = cs * 0.54f
@@ -746,8 +765,8 @@ class GameEngine(
             val pStroke = cache.particleStrokePaint
             for (i in 0 until particles.size) {
                 val p = particles[i]
-                val px = ox + p.x * cs
-                val py = oy + p.y * cs
+                val px = ox + p.x * cw
+                val py = oy + p.y * ch
                 val halfPs = p.size * cs * 0.5f
                 val a = p.alpha.coerceIn(0f, 1f)
                 val pRgb = p.rgb
@@ -769,8 +788,8 @@ class GameEngine(
                 val dotPaint = cache.aimDotPaint
                 for (i in 0 until count) {
                     val fade = (1f - i * invCount) * 0.9f
-                    val dx = ox + simulation.aimPreviewX[i] * cs
-                    val dy = oy + simulation.aimPreviewY[i] * cs
+                    val dx = ox + simulation.aimPreviewX[i] * cw
+                    val dy = oy + simulation.aimPreviewY[i] * ch
                     dotPaint.color = (((fade * 0.35f) * 255f).toInt() shl 24) or 0x0038BDF8
                     nc.drawCircle(dx, dy, glowR, dotPaint)
                     dotPaint.color = ((fade * 255f).toInt() shl 24) or 0x00FFFFFF
@@ -785,9 +804,9 @@ class GameEngine(
                 simulation.paddleExpandTimer > 0f ||
                 simulation.laserBeamTimer > 0f
             if (showPaddle) {
-                val px = ox + simulation.paddleX * cs
-                val py = oy + simulation.paddleY * cs
-                val pHalfW = simulation.paddleWidth * 0.5f * cs
+                val px = ox + simulation.paddleX * cw
+                val py = oy + simulation.paddleY * ch
+                val pHalfW = simulation.paddleWidth * 0.5f * cw
                 val pHalfH = cs * 0.14f
                 val pCorner = pHalfH
                 val isExpanded = simulation.paddleExpandTimer > 0f
@@ -829,14 +848,14 @@ class GameEngine(
                 if (!ball.active) continue
                 nc.drawBitmap(
                     ballSprite,
-                    ox + ball.x * cs - spriteHalf,
-                    oy + ball.y * cs - spriteHalf,
+                    ox + ball.x * cw - spriteHalf,
+                    oy + ball.y * ch - spriteHalf,
                     bmpPaint
                 )
             }
 
-            val anchorX = ox + (simulation.nextLaunchX ?: simulation.launchX) * cs
-            val anchorY = oy + FLOOR_Y * cs
+            val anchorX = ox + (simulation.nextLaunchX ?: simulation.launchX) * cw
+            val anchorY = oy + FLOOR_Y * ch
             nc.drawBitmap(ballSprite, anchorX - spriteHalf, anchorY - spriteHalf, bmpPaint)
 
             val labelPaint = cache.labelPaint
@@ -861,7 +880,7 @@ class GameEngine(
                 labelPaint.textSize = (cs * 0.34f).coerceIn(18f, 34f)
                 val ftRgb = ft.rgb and 0x00FFFFFF
                 labelPaint.color = ((life * 255f).toInt() shl 24) or ftRgb
-                nc.drawText(ft.text, ox + ft.x * cs, oy + ft.y * cs, labelPaint)
+                nc.drawText(ft.text, ox + ft.x * cw, oy + ft.y * ch, labelPaint)
             }
         }
     }
