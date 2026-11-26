@@ -1,4 +1,4 @@
-package com.example.brickquest.data
+package com.brickbreaker.game.brickquest.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
@@ -16,7 +16,7 @@ private val Context.brickQuestDataStore: DataStore<Preferences> by preferencesDa
 )
 
 /** All quest stages are generated procedurally (see engine/StageGenerator.kt). */
-const val TOTAL_QUEST_STAGES = com.example.brickquest.engine.MAX_STAGE
+const val TOTAL_QUEST_STAGES = com.brickbreaker.game.brickquest.engine.MAX_STAGE
 
 /**
  * Ball skins unlocked with total stars. The ARGB colors drive the generic glow renderer;

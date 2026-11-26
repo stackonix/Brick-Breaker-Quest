@@ -1,4 +1,4 @@
-package com.example.brickquest.ui
+package com.brickbreaker.game.brickquest.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -68,16 +68,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.BuildConfig
-import com.example.brickquest.data.BrickQuestProgress
-import com.example.brickquest.data.TOTAL_QUEST_STAGES
-import com.example.brickquest.engine.BrickBreakerCanvas
-import com.example.brickquest.engine.BrickQuestMode
-import com.example.brickquest.engine.GameAudioCue
-import com.example.brickquest.engine.GameEngine
-import com.example.brickquest.engine.GameEngineLoop
-import com.example.brickquest.engine.TurnPhase
-import com.example.data.SoundHapticManager
+import com.brickbreaker.game.BuildConfig
+import com.brickbreaker.game.brickquest.data.BrickQuestProgress
+import com.brickbreaker.game.brickquest.data.TOTAL_QUEST_STAGES
+import com.brickbreaker.game.brickquest.engine.BrickBreakerCanvas
+import com.brickbreaker.game.brickquest.engine.BrickQuestMode
+import com.brickbreaker.game.brickquest.engine.GameAudioCue
+import com.brickbreaker.game.brickquest.engine.GameEngine
+import com.brickbreaker.game.brickquest.engine.GameEngineLoop
+import com.brickbreaker.game.brickquest.engine.TurnPhase
+import com.brickbreaker.game.data.SoundHapticManager
 import kotlin.math.abs
 
 @Composable

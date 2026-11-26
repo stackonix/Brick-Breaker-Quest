@@ -1,4 +1,4 @@
-package com.example
+package com.brickbreaker.game
 
 import android.graphics.Color as AndroidColor
 import android.os.Bundle
@@ -12,13 +12,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.brickquest.ui.BrickQuestGameScreen
-import com.example.brickquest.ui.BrickQuestHomeScreen
-import com.example.brickquest.ui.BrickQuestScreen
-import com.example.brickquest.ui.BrickQuestSplashScreen
-import com.example.brickquest.ui.BrickQuestTheme
-import com.example.brickquest.ui.BrickQuestViewModel
-import com.example.brickquest.ui.StageSelectScreen
+import com.brickbreaker.game.brickquest.ui.BrickQuestGameScreen
+import com.brickbreaker.game.brickquest.ui.BrickQuestHomeScreen
+import com.brickbreaker.game.brickquest.ui.BrickQuestScreen
+import com.brickbreaker.game.brickquest.ui.BrickQuestSplashScreen
+import com.brickbreaker.game.brickquest.ui.BrickQuestTheme
+import com.brickbreaker.game.brickquest.ui.BrickQuestViewModel
+import com.brickbreaker.game.brickquest.ui.StageSelectScreen
 
 class MainActivity : ComponentActivity() {
 

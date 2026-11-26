@@ -1,12 +1,12 @@
-package com.example
+package com.brickbreaker.game
 
-import com.example.brickquest.engine.ARENA_COLS
-import com.example.brickquest.engine.BrickQuestEngine
-import com.example.brickquest.engine.BrickQuestMode
-import com.example.brickquest.engine.DANGER_ROW
-import com.example.brickquest.engine.MAX_STAGE
-import com.example.brickquest.engine.StageGenerator
-import com.example.brickquest.engine.TurnPhase
+import com.brickbreaker.game.brickquest.engine.ARENA_COLS
+import com.brickbreaker.game.brickquest.engine.BrickQuestEngine
+import com.brickbreaker.game.brickquest.engine.BrickQuestMode
+import com.brickbreaker.game.brickquest.engine.DANGER_ROW
+import com.brickbreaker.game.brickquest.engine.MAX_STAGE
+import com.brickbreaker.game.brickquest.engine.StageGenerator
+import com.brickbreaker.game.brickquest.engine.TurnPhase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

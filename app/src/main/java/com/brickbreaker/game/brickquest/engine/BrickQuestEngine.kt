@@ -1,4 +1,4 @@
-package com.example.brickquest.engine
+package com.brickbreaker.game.brickquest.engine
 
 import kotlin.math.PI
 import kotlin.math.abs

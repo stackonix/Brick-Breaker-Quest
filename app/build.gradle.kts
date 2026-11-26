@@ -15,11 +15,11 @@ val aiStudioReleaseKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}
 val aiStudioDebugKeystore = file("${rootDir}/debug.keystore")
 
 android {
-  namespace = "com.example"
+  namespace = "com.brickbreaker.game"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.mindfeud.kxzqmr"
+    applicationId = "com.brickbreaker.game"
     minSdk = 24
     targetSdk = 36
     versionCode = 1

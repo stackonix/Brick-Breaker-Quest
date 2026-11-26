@@ -1,4 +1,4 @@
-package com.example.brickquest.ui
+package com.brickbreaker.game.brickquest.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
@@ -102,12 +102,12 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
-import com.example.brickquest.data.BallSkin
-import com.example.brickquest.data.BrickQuestProgress
-import com.example.brickquest.data.TOTAL_QUEST_STAGES
-import com.example.brickquest.engine.STAGES_PER_WORLD
-import com.example.brickquest.engine.StageWorlds
+import com.brickbreaker.game.R
+import com.brickbreaker.game.brickquest.data.BallSkin
+import com.brickbreaker.game.brickquest.data.BrickQuestProgress
+import com.brickbreaker.game.brickquest.data.TOTAL_QUEST_STAGES
+import com.brickbreaker.game.brickquest.engine.STAGES_PER_WORLD
+import com.brickbreaker.game.brickquest.engine.StageWorlds
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 

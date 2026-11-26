@@ -1,4 +1,4 @@
-package com.example.brickquest.ui
+package com.brickbreaker.game.brickquest.ui
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -8,7 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.example.ui.theme.MindfeudTypography
+import com.brickbreaker.game.ui.theme.MindfeudTypography
 
 /**
  * Centralized neon cosmic arcade palette matching Bricks Breaker Quest.

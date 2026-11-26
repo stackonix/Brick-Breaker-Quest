@@ -1,14 +1,14 @@
-package com.example.brickquest.ui
+package com.brickbreaker.game.brickquest.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.brickquest.data.BallSkin
-import com.example.brickquest.data.BrickQuestProgress
-import com.example.brickquest.data.BrickQuestStore
-import com.example.brickquest.data.TOTAL_QUEST_STAGES
-import com.example.brickquest.engine.BrickQuestMode
-import com.example.data.SoundHapticManager
+import com.brickbreaker.game.brickquest.data.BallSkin
+import com.brickbreaker.game.brickquest.data.BrickQuestProgress
+import com.brickbreaker.game.brickquest.data.BrickQuestStore
+import com.brickbreaker.game.brickquest.data.TOTAL_QUEST_STAGES
+import com.brickbreaker.game.brickquest.engine.BrickQuestMode
+import com.brickbreaker.game.data.SoundHapticManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted

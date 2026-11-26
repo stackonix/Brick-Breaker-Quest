@@ -1,4 +1,4 @@
-package com.example.brickquest.engine
+package com.brickbreaker.game.brickquest.engine
 
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
@@ -32,7 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntSize
-import com.example.brickquest.data.BallSkin
+import com.brickbreaker.game.brickquest.data.BallSkin
 import kotlin.math.PI
 import kotlin.math.ceil
 import kotlin.math.cos
