@@ -204,15 +204,37 @@ private class NativeRenderCache {
         }
         c.drawRoundRect(ox, oy, ox + aw, oy + ah, corner, corner, bgPaint)
 
-        // 2. Danger dashed line (row 10)
-        val dangerY = oy + DANGER_ROW * m.cellH
+        // 2. Danger zone + glowing danger line, ~2 rows above the floor (moves with the arena)
+        val dangerY = oy + dangerRowFor(m.rows) * m.cellH
+        val zonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            shader = LinearGradient(
+                0f, dangerY, 0f, oy + ah,
+                intArrayOf(0x2EEF4444, 0x0AEF4444),
+                null,
+                Shader.TileMode.CLAMP
+            )
+        }
+        c.save()
+        c.clipRect(ox, dangerY, ox + aw, oy + ah)
+        c.drawRoundRect(ox, oy, ox + aw, oy + ah, corner, corner, zonePaint)
+        c.restore()
+        val dangerGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            color = 0x55FF3B3B
+            strokeWidth = 7f * density
+            strokeCap = Paint.Cap.ROUND
+            maskFilter = android.graphics.BlurMaskFilter(4f * density, android.graphics.BlurMaskFilter.Blur.NORMAL)
+        }
+        c.drawLine(ox + 10f, dangerY, ox + aw - 10f, dangerY, dangerGlowPaint)
         val dangerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            color = 0x57EF4444
-            strokeWidth = 1.5f * density
-            pathEffect = DashPathEffect(floatArrayOf(12f, 10f), 0f)
+            color = 0xF2FF4D4D.toInt()
+            strokeWidth = 2.2f * density
+            strokeCap = Paint.Cap.ROUND
+            pathEffect = DashPathEffect(floatArrayOf(14f * density, 8f * density), 0f)
         }
-        c.drawLine(ox + 8f, dangerY, ox + aw - 8f, dangerY, dangerPaint)
+        c.drawLine(ox + 10f, dangerY, ox + aw - 10f, dangerY, dangerPaint)
 
         // 3. Outer glowing neon cyan -> violet -> magenta frame (baked ONCE!)
         val gradient = LinearGradient(

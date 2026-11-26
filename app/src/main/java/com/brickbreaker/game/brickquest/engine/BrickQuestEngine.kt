@@ -7,6 +7,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
@@ -17,7 +18,13 @@ const val BALL_RADIUS = 0.165f
 const val FLOOR_Y = ARENA_ROWS - 0.30f // default; the live floor is BrickQuestEngine.floorY
 /** The arena can grow below the danger line on tall screens (square cells, more room). */
 const val MAX_ARENA_ROWS = 15f
-const val DANGER_ROW = ARENA_ROWS - 2 // If any brick reaches row >= 10 -> Game Over!
+const val DANGER_ROW = ARENA_ROWS - 2 // design danger row (12-row arena); levels are generated for it
+
+/**
+ * Danger line for an arena of [rows] rows: always about 2 rows above the floor, like other
+ * brick games. A brick whose row reaches it ends the game. Never above [DANGER_ROW].
+ */
+fun dangerRowFor(rows: Float): Int = (rows - 2f).toInt().coerceAtLeast(DANGER_ROW)
 
 enum class BrickQuestMode {
     STAGE,
@@ -50,7 +57,7 @@ class BrickEntity(
     val col: Int,
     var row: Int,
     var hp: Int,
-    val maxHp: Int,
+    var maxHp: Int,
     val special: BrickSpecial = BrickSpecial.NONE,
     var hitFlash: Float = 0f,
     var renderRowOffset: Float = 0f, // Smooth drop animation offset
@@ -179,19 +186,51 @@ class BrickQuestEngine(
         private set
     /**
      * Visible arena height in rows. 12 by default; the renderer raises it (up to [MAX_ARENA_ROWS])
-     * on tall screens so the arena fills the screen with square cells. The danger row stays at
-     * [DANGER_ROW], so stage difficulty does not change: there is just more room to launch.
+     * on tall screens so the arena fills the screen with square cells. The danger line follows
+     * the floor ([dangerRow]); before the first shot of a stage the brick HP is scaled by the
+     * extra turns this gives, so a stage is equally hard on every screen.
      */
     var arenaRows: Float = ARENA_ROWS.toFloat()
         private set
     val floorY: Float get() = arenaRows - 0.30f
     val paddleY: Float get() = floorY - 0.14f
 
+    /** Row of the danger line. A brick reaching it after a drop = game over. */
+    val dangerRow: Int get() = dangerRowFor(arenaRows)
+
     fun setArenaRows(rows: Float) {
         val r = rows.coerceIn(ARENA_ROWS.toFloat(), MAX_ARENA_ROWS)
         if (abs(r - arenaRows) < 0.01f) return
         arenaRows = r
         aimPreviewDirty = true
+        rescaleStageHpForTurns()
+    }
+
+    // HP each brick had as generated (for the 10-row danger line), by brick id.
+    private val designHp = HashMap<Int, Int>()
+    private var hasFiredThisStage = false
+
+    /**
+     * Stage HP is designed for turns = DANGER_ROW - deepestRow. A lower danger line gives more
+     * turns, so HP is multiplied by the same ratio (only before the first shot).
+     */
+    private fun rescaleStageHpForTurns() {
+        if (mode != BrickQuestMode.STAGE || hasFiredThisStage || designHp.isEmpty()) return
+        var maxRow = 0
+        for (i in 0 until bricks.size) if (bricks[i].row > maxRow) maxRow = bricks[i].row
+        val designTurns = (DANGER_ROW - maxRow).coerceAtLeast(1)
+        val actualTurns = (dangerRow - maxRow).coerceAtLeast(1)
+        val ratio = actualTurns.toFloat() / designTurns
+        var total = 0
+        for (i in 0 until bricks.size) {
+            val b = bricks[i]
+            val base = designHp[b.id] ?: continue
+            val hp = (base * ratio).roundToInt().coerceIn(1, 999)
+            b.hp = hp
+            b.maxHp = hp
+            total += hp
+        }
+        starTargetScore = max(600, total * 11)
     }
 
     // Temporary timed power-up bonuses (seconds remaining)
@@ -287,7 +326,7 @@ class BrickQuestEngine(
         get() {
             var maxRow = -1
             for (i in 0 until bricks.size) if (bricks[i].row > maxRow) maxRow = bricks[i].row
-            return if (maxRow < 0) 99 else (DANGER_ROW - maxRow).coerceAtLeast(0)
+            return if (maxRow < 0) 99 else (dangerRow - maxRow).coerceAtLeast(0)
         }
 
     private fun loadEndlessStart() {
@@ -309,7 +348,10 @@ class BrickQuestEngine(
         for (p in blueprint.pickups) addPickup(p.col, p.row, p.kind)
 
         var totalHpSum = 0
-        for (i in 0 until bricks.size) totalHpSum += bricks[i].hp
+        for (i in 0 until bricks.size) {
+            totalHpSum += bricks[i].hp
+            designHp[bricks[i].id] = bricks[i].hp
+        }
         starTargetScore = max(600, totalHpSum * 11)
     }
 
@@ -428,6 +470,7 @@ class BrickQuestEngine(
         if (phase != TurnPhase.AIMING || !isDraggingAim) return
         isDraggingAim = false
         phase = TurnPhase.SHOOTING
+        hasFiredThisStage = true
         recycleAllBalls()
         nextLaunchX = null
         comboHitsThisTurn = 0
@@ -649,7 +692,7 @@ class BrickQuestEngine(
                     for (i in 0 until bricks.size) {
                         val b = bricks[i]
                         b.renderRowOffset = 0f
-                        if (b.row >= DANGER_ROW) dangerHit = true
+                        if (b.row >= dangerRow) dangerHit = true
                     }
                     aimPreviewDirty = true
                     phase = if (dangerHit) TurnPhase.GAME_OVER else TurnPhase.AIMING
@@ -1145,7 +1188,7 @@ class BrickQuestEngine(
         for (i in 0 until pickups.size) {
             pickups[i].row += 1
         }
-        pickups.removeAll { it.row >= DANGER_ROW }
+        pickups.removeAll { it.row >= dangerRow }
 
         if (mode == BrickQuestMode.ENDLESS) {
             spawnEndlessRow(row = 1, wave = turnNumber + 2)
