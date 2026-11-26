@@ -48,12 +48,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -173,7 +175,7 @@ fun BrickQuestGameScreen(
         }
     }
 
-    // Core 60 FPS Game Loop powered by LaunchedEffect + withFrameMillis inside GameEngine.kt
+    // Core 60 FPS Game Loop powered by LaunchedEffect + withFrameNanos inside GameEngine.kt
     GameEngineLoop(
         engine = gameEngine,
         isPaused = isPaused,
@@ -272,6 +274,14 @@ fun BrickQuestGameScreen(
                     onShotFired = { syncHudFromEngine() },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                if (SHOW_FPS_OVERLAY) {
+                    FpsOverlay(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(start = 8.dp, top = 4.dp)
+                    )
+                }
 
                 if (showDragHint) {
                     Surface(
@@ -375,6 +385,57 @@ fun BrickQuestGameScreen(
             )
         }
     }
+}
+
+/**
+ * Performance test switch. Shows "FPS xx | worst yy ms" over the arena.
+ * Works in debug AND release so you can measure the optimized release build.
+ * Set to false before publishing to the Play Store.
+ */
+private const val SHOW_FPS_OVERLAY = true
+
+/**
+ * Lightweight FPS meter. Counts frame callbacks and the slowest frame in each
+ * half-second window; the text updates only twice per second, so it adds no
+ * per-frame recomposition.
+ * "worst" above ~20 ms on a 60 Hz phone means a visible stutter happened.
+ */
+@Composable
+private fun FpsOverlay(modifier: Modifier = Modifier) {
+    var label by remember { mutableStateOf("FPS --") }
+    LaunchedEffect(Unit) {
+        var windowStart = -1L
+        var lastFrame = -1L
+        var frames = 0
+        var worstNanos = 0L
+        while (true) {
+            withFrameNanos { now ->
+                if (lastFrame > 0L) {
+                    val d = now - lastFrame
+                    if (d > worstNanos) worstNanos = d
+                }
+                lastFrame = now
+                if (windowStart < 0L) windowStart = now
+                frames++
+                val elapsed = now - windowStart
+                if (elapsed >= 500_000_000L) {
+                    val fps = (frames * 1_000_000_000L / elapsed).toInt()
+                    label = "FPS $fps | worst ${worstNanos / 1_000_000L} ms"
+                    windowStart = now
+                    frames = 0
+                    worstNanos = 0L
+                }
+            }
+        }
+    }
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+        color = Color(0xFF4ADE80),
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
 }
 
 @Composable

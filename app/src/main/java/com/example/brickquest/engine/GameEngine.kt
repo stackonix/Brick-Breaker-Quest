@@ -21,9 +21,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -344,7 +345,7 @@ fun calculateArenaMetrics(width: Float, height: Float): ArenaMetrics {
 /**
  * High-performance Canvas-based Brick-Breaker Game Engine.
  *
- * Uses VSync-aligned [withFrameMillis] stepping (zero 1-step/2-step micro-jitter),
+ * Uses VSync-aligned [withFrameNanos] stepping with real-time sub-steps (no slow motion on frame drops),
  * pre-baked static arena & neon ball sprite Bitmaps, single-pass batched native Canvas rendering,
  * cached HP/count Strings (zero GC pauses), and draw-phase-only [frameTick] invalidation.
  */
@@ -356,7 +357,7 @@ class GameEngine(
     val frameTick: MutableLongState = mutableLongStateOf(0L)
 
     private val renderCache = NativeRenderCache()
-    private var lastFrameMillis: Long = -1L
+    private var lastFrameNanos: Long = -1L
 
     private var lastHitCount: Int = 0
     private var lastBreakCount: Int = 0
@@ -375,25 +376,36 @@ class GameEngine(
     val paddleExpandTimer: Float get() = simulation.paddleExpandTimer
 
     fun resetFrameClock() {
-        lastFrameMillis = -1L
+        lastFrameNanos = -1L
     }
 
     /**
-     * Advances simulation smoothly once per VSync frame using [withFrameMillis] timestamps
-     * so balls glide evenly with zero accumulator micro-stutter.
+     * Advances the simulation by the real time elapsed since the previous VSync frame.
+     *
+     * A long frame (phone dropped to 30 or 20 FPS) is split into equal sub-steps of at most
+     * [MAX_SIM_STEP_SEC], so the game keeps its real speed instead of going into slow motion.
+     * At a steady 60 FPS this is exactly one update per frame, same as before. On 90/120 Hz
+     * screens each frame simply gets a smaller dt.
      */
-    fun stepFrameMillis(
-        frameTimeMillis: Long,
+    fun stepFrameNanos(
+        frameTimeNanos: Long,
         onAudioCue: (GameAudioCue) -> Unit
     ) {
-        if (lastFrameMillis < 0L) {
-            lastFrameMillis = frameTimeMillis
+        if (lastFrameNanos < 0L) {
+            lastFrameNanos = frameTimeNanos
             return
         }
-        val dtSec = ((frameTimeMillis - lastFrameMillis) * 0.001f).coerceIn(0.001f, MAX_FRAME_DT_SEC)
-        lastFrameMillis = frameTimeMillis
+        val frameDtSec = ((frameTimeNanos - lastFrameNanos) / 1_000_000_000f)
+            .coerceIn(0f, MAX_FRAME_DT_SEC)
+        lastFrameNanos = frameTimeNanos
+        if (frameDtSec <= 0f) return
+        val frameTimeMillis = frameTimeNanos / 1_000_000L
 
-        simulation.update(dtSec)
+        val simSteps = ceil(frameDtSec / MAX_SIM_STEP_SEC).toInt().coerceIn(1, MAX_SIM_STEPS_PER_FRAME)
+        val stepDt = frameDtSec / simSteps
+        for (s in 0 until simSteps) {
+            simulation.update(stepDt)
+        }
 
         // Emit throttled non-blocking audio/haptic cues
         val laserDelta = simulation.laserSoundCounter - lastLaserCount
@@ -819,13 +831,17 @@ class GameEngine(
     }
 
     companion object {
-        private const val MAX_FRAME_DT_SEC = 0.033f
+        // Longer gaps (app resumed, huge hitch) are capped so balls don't teleport through bricks.
+        private const val MAX_FRAME_DT_SEC = 0.1f
+        // Largest dt one simulation update may take (matches the old 60 FPS behaviour).
+        private const val MAX_SIM_STEP_SEC = 1f / 60f
+        private const val MAX_SIM_STEPS_PER_FRAME = 6
         private const val AUDIO_THROTTLE_MS = 95L
     }
 }
 
 /**
- * Core 60 FPS game loop driven by Compose [LaunchedEffect] and [withFrameMillis].
+ * Core 60 FPS game loop driven by Compose [LaunchedEffect] and [withFrameNanos].
  * Steps [engine] in lockstep with VSync and triggers [onFrameSynced] with the frame timestamp
  * so HUD updates can be smoothly throttled without per-frame UI recompositions.
  */
@@ -843,12 +859,12 @@ fun GameEngineLoop(
         }
         engine.resetFrameClock()
         while (true) {
-            withFrameMillis { frameTimeMillis ->
-                engine.stepFrameMillis(
-                    frameTimeMillis = frameTimeMillis,
+            withFrameNanos { frameTimeNanos ->
+                engine.stepFrameNanos(
+                    frameTimeNanos = frameTimeNanos,
                     onAudioCue = onAudioCue
                 )
-                onFrameSynced(frameTimeMillis)
+                onFrameSynced(frameTimeNanos / 1_000_000L)
             }
         }
     }
@@ -873,6 +889,9 @@ fun BrickBreakerCanvas(
     Canvas(
         modifier = modifier
             .fillMaxSize()
+            // Own render layer: the 60 FPS redraw re-records only the arena,
+            // not the HUD, buttons and gradient background around it.
+            .graphicsLayer { }
             .onSizeChanged { canvasSize = it }
             .pointerInput(engine, isPaused) {
                 awaitEachGesture {
