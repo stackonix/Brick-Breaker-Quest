@@ -8,6 +8,12 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+// AI Studio provides these keystores; a plain clone from GitHub does not have them.
+// When they are missing (e.g. building in Android Studio) we fall back to the standard
+// Android debug key so the project still builds. Inside AI Studio nothing changes.
+val aiStudioReleaseKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
+val aiStudioDebugKeystore = file("${rootDir}/debug.keystore")
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -49,12 +55,19 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
-      signingConfig = signingConfigs.getByName("release")
+      signingConfig = if (aiStudioReleaseKeystore.exists()) {
+        signingConfigs.getByName("release")
+      } else {
+        // Local test builds only. Play Store uploads must use the real upload key.
+        signingConfigs.getByName("debug")
+      }
     }
     debug {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
-      signingConfig = signingConfigs.getByName("debugConfig")
+      if (aiStudioDebugKeystore.exists()) {
+        signingConfig = signingConfigs.getByName("debugConfig")
+      }
     }
   }
   compileOptions {
