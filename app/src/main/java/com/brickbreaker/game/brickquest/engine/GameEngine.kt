@@ -46,9 +46,8 @@ enum class GameAudioCue {
 }
 
 /**
- * [cellW] x [cellH] is one grid cell on screen. They can differ so the arena fills the space:
- * the game logic stays a 9 x 12 grid, only the drawing is stretched vertically (capped).
- * [cellSize] (= cellW) is used for sizes such as text, radii and stroke widths.
+ * Square grid cells ([cellW] = [cellH] = [cellSize]). On tall screens the arena gets extra
+ * rows below the danger line ([rows], 12 up to MAX_ARENA_ROWS) instead of stretched bricks.
  */
 data class ArenaMetrics(
     val offsetX: Float,
@@ -57,7 +56,8 @@ data class ArenaMetrics(
     val arenaWidth: Float,
     val arenaHeight: Float,
     val cellW: Float = cellSize,
-    val cellH: Float = cellSize
+    val cellH: Float = cellSize,
+    val rows: Float = ARENA_ROWS.toFloat()
 )
 
 private val CACHED_HP_STRINGS = Array(512) { it.toString() }
@@ -363,23 +363,19 @@ private class NativeRenderCache {
     }
 }
 
-/** Max vertical stretch of a grid cell (cell height / cell width). */
-private const val MAX_CELL_STRETCH = 1.32f
-
 fun calculateArenaMetrics(width: Float, height: Float): ArenaMetrics {
     // Small margins so the arena uses (almost) the full screen width on phones.
     val marginX = width * 0.012f
     val marginY = height * 0.01f
     val availW = (width - marginX * 2f).coerceAtLeast(1f)
     val availH = (height - marginY * 2f).coerceAtLeast(1f)
-    val fitW = availW / ARENA_COLS
-    val fitH = availH / ARENA_ROWS
-    // Phones (taller than 9:12): use the full width and stretch cells vertically to fill the
-    // height, up to MAX_CELL_STRETCH so bricks never look too tall. Tablets / wide: square cells.
-    val cellW = min(fitW, fitH)
-    val cellH = if (fitH > fitW) min(fitH, fitW * MAX_CELL_STRETCH) else cellW
+    // Square cells using the full width; tall screens get extra rows (12 up to MAX_ARENA_ROWS)
+    // so the arena fills the height. Wide screens / tablets: 12 rows, height decides the size.
+    val cellW = min(availW / ARENA_COLS, availH / ARENA_ROWS)
+    val cellH = cellW
+    val rows = (availH / cellH).coerceIn(ARENA_ROWS.toFloat(), MAX_ARENA_ROWS)
     val arenaW = cellW * ARENA_COLS
-    val arenaH = cellH * ARENA_ROWS
+    val arenaH = cellH * rows
     return ArenaMetrics(
         offsetX = (width - arenaW) / 2f,
         offsetY = (height - arenaH) / 2f,
@@ -387,7 +383,8 @@ fun calculateArenaMetrics(width: Float, height: Float): ArenaMetrics {
         arenaWidth = arenaW,
         arenaHeight = arenaH,
         cellW = cellW,
-        cellH = cellH
+        cellH = cellH,
+        rows = rows
     )
 }
 
@@ -546,6 +543,8 @@ class GameEngine(
     fun DrawScope.render(skin: BallSkin) {
         val cache = renderCache
         val metrics = cache.ensureLayout(size.width, size.height, density)
+        // Keep the physics floor in sync with the visible arena height (no-op if unchanged).
+        simulation.setArenaRows(metrics.rows)
         val ox = metrics.offsetX
         val oy = metrics.offsetY
         val cs = metrics.cellSize
@@ -855,7 +854,7 @@ class GameEngine(
             }
 
             val anchorX = ox + (simulation.nextLaunchX ?: simulation.launchX) * cw
-            val anchorY = oy + FLOOR_Y * ch
+            val anchorY = oy + simulation.floorY * ch
             nc.drawBitmap(ballSprite, anchorX - spriteHalf, anchorY - spriteHalf, bmpPaint)
 
             val labelPaint = cache.labelPaint

@@ -14,7 +14,9 @@ import kotlin.random.Random
 const val ARENA_COLS = 9
 const val ARENA_ROWS = 12
 const val BALL_RADIUS = 0.165f
-const val FLOOR_Y = ARENA_ROWS - 0.30f
+const val FLOOR_Y = ARENA_ROWS - 0.30f // default; the live floor is BrickQuestEngine.floorY
+/** The arena can grow below the danger line on tall screens (square cells, more room). */
+const val MAX_ARENA_ROWS = 15f
 const val DANGER_ROW = ARENA_ROWS - 2 // If any brick reaches row >= 10 -> Game Over!
 
 enum class BrickQuestMode {
@@ -175,7 +177,22 @@ class BrickQuestEngine(
         private set
     var paddleWidth: Float = BASE_PADDLE_WIDTH
         private set
-    val paddleY: Float = FLOOR_Y - 0.14f
+    /**
+     * Visible arena height in rows. 12 by default; the renderer raises it (up to [MAX_ARENA_ROWS])
+     * on tall screens so the arena fills the screen with square cells. The danger row stays at
+     * [DANGER_ROW], so stage difficulty does not change: there is just more room to launch.
+     */
+    var arenaRows: Float = ARENA_ROWS.toFloat()
+        private set
+    val floorY: Float get() = arenaRows - 0.30f
+    val paddleY: Float get() = floorY - 0.14f
+
+    fun setArenaRows(rows: Float) {
+        val r = rows.coerceIn(ARENA_ROWS.toFloat(), MAX_ARENA_ROWS)
+        if (abs(r - arenaRows) < 0.01f) return
+        arenaRows = r
+        aimPreviewDirty = true
+    }
 
     // Temporary timed power-up bonuses (seconds remaining)
     var multiBallTimer: Float = 0f
@@ -378,14 +395,14 @@ class BrickQuestEngine(
         if (phase != TurnPhase.AIMING) return
         val dx: Float
         val dy: Float
-        if (normY <= FLOOR_Y - 0.15f) {
+        if (normY <= floorY - 0.15f) {
             // Direct point-at-target aiming
             dx = normX - launchX
-            dy = normY - FLOOR_Y
+            dy = normY - floorY
         } else {
             // Slingshot pullback below floor
             dx = launchX - normX
-            dy = FLOOR_Y - normY
+            dy = floorY - normY
         }
         if (hypot(dx, dy) < 0.18f) return
         var angle = atan2(dy, dx)
@@ -447,7 +464,7 @@ class BrickQuestEngine(
             if (!b.active) continue
             b.returning = true
             val dx = targetX - b.x
-            val dy = FLOOR_Y - b.y
+            val dy = floorY - b.y
             val dist = hypot(dx, dy).coerceAtLeast(0.01f)
             b.vx = (dx / dist) * RECALL_SPEED
             b.vy = (dy / dist) * RECALL_SPEED
@@ -484,7 +501,7 @@ class BrickQuestEngine(
             ballsRemainingToSpawn += 25
         }
         damagePerHit = 2
-        floatingTexts.add(FloatingTextFx(x = launchX, y = FLOOR_Y - 0.8f, text = "+25 BALLS! 2×", rgb = 0xFF4D6D, life = 1.3f))
+        floatingTexts.add(FloatingTextFx(x = launchX, y = floorY - 0.8f, text = "+25 BALLS! 2×", rgb = 0xFF4D6D, life = 1.3f))
         laserSoundCounter++
         return true
     }
@@ -498,7 +515,7 @@ class BrickQuestEngine(
         aimPreviewDirty = false
         var count = 0
         var cx = launchX
-        var cy = FLOOR_Y
+        var cy = floorY
         var dx = cos(aimAngleRad)
         var dy = sin(aimAngleRad)
         val step = 0.30f
@@ -529,7 +546,7 @@ class BrickQuestEngine(
                 if (bounced) break
                 bounced = true
             }
-            if (cy >= FLOOR_Y) break
+            if (cy >= floorY) break
 
             // Brick hit check (indexed loop, zero iterator allocation)
             var hitBrick: BrickEntity? = null
@@ -588,7 +605,7 @@ class BrickQuestEngine(
                 if (ballsRemainingToSpawn > 0) {
                     spawnCooldown -= effectiveDt
                     while (spawnCooldown <= 0f && ballsRemainingToSpawn > 0) {
-                        balls.add(obtainBall(launchX, FLOOR_Y, shotVx, shotVy))
+                        balls.add(obtainBall(launchX, floorY, shotVx, shotVy))
                         ballsRemainingToSpawn--
                         spawnCooldown += spawnInterval
                     }
@@ -652,7 +669,7 @@ class BrickQuestEngine(
             autoTurboApplied = true
             if (!turboSpeed) {
                 turboSpeed = true
-                floatingTexts.add(FloatingTextFx(ARENA_COLS / 2f, FLOOR_Y - 1.4f, "SPEED UP ×2", 0xFACC15, 1.2f))
+                floatingTexts.add(FloatingTextFx(ARENA_COLS / 2f, floorY - 1.4f, "SPEED UP ×2", 0xFACC15, 1.2f))
             }
         }
         if (!autoRecallApplied && shotElapsedSec >= AUTO_RECALL_AFTER_SEC) {
@@ -713,8 +730,8 @@ class BrickQuestEngine(
             ball.y += ball.vy * dt
 
             if (ball.returning) {
-                if (ball.y >= FLOOR_Y) {
-                    ball.y = FLOOR_Y
+                if (ball.y >= floorY) {
+                    ball.y = floorY
                     ball.active = false
                 }
                 continue
@@ -737,7 +754,7 @@ class BrickQuestEngine(
 
             // Expanded Paddle Deflection (active while PADDLE_EXPAND bonus timer > 0!)
             if (paddleExpandTimer > 0f && ball.vy > 0f &&
-                ball.y + BALL_RADIUS >= paddleY && ball.y - BALL_RADIUS <= FLOOR_Y + 0.1f
+                ball.y + BALL_RADIUS >= paddleY && ball.y - BALL_RADIUS <= floorY + 0.1f
             ) {
                 val halfW = paddleWidth * 0.5f + BALL_RADIUS
                 val dxPaddle = ball.x - paddleX
@@ -756,8 +773,8 @@ class BrickQuestEngine(
             }
 
             // Floor return
-            if (ball.y >= FLOOR_Y && ball.vy > 0f) {
-                ball.y = FLOOR_Y
+            if (ball.y >= floorY && ball.vy > 0f) {
+                ball.y = floorY
                 ball.active = false
                 if (nextLaunchX == null) {
                     nextLaunchX = ball.x.coerceIn(0.65f, ARENA_COLS - 0.65f)
@@ -864,12 +881,12 @@ class BrickQuestEngine(
             fp.pulsePhase += dt * 6.0f
 
             // Paddle catch check
-            if (fp.y >= paddleY - 0.34f && fp.y <= FLOOR_Y + 0.32f && abs(fp.x - paddleX) <= catchHalfW) {
+            if (fp.y >= paddleY - 0.34f && fp.y <= floorY + 0.32f && abs(fp.x - paddleX) <= catchHalfW) {
                 fallingPowerUps.removeAt(i)
                 activatePowerUp(fp.kind, fp.x, paddleY)
                 continue
             }
-            if (fp.y > ARENA_ROWS + 0.45f) {
+            if (fp.y > arenaRows + 0.45f) {
                 fallingPowerUps.removeAt(i)
             }
         }
