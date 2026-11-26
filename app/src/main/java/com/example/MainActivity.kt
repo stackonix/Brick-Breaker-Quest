@@ -52,7 +52,9 @@ fun BrickQuestApp(viewModel: BrickQuestViewModel) {
 
                 BrickQuestScreen.Home -> BrickQuestHomeScreen(
                     progress = progress,
-                    onStartGame = viewModel::openStageSelect,
+                    onPlayStage = viewModel::startStage,
+                    onOpenWorldMap = viewModel::openStageSelect,
+                    onStartEndless = viewModel::startEndless,
                     onSelectSkin = viewModel::selectSkin,
                     onToggleSound = viewModel::toggleSound,
                     onToggleHaptics = viewModel::toggleHaptics
