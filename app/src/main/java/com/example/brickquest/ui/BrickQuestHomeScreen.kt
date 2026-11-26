@@ -1,20 +1,14 @@
 package com.example.brickquest.ui
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -22,13 +16,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,11 +28,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.AllInclusive
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
@@ -52,26 +42,29 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.brickquest.data.BallSkin
 import com.example.brickquest.data.BrickQuestProgress
 import kotlin.math.PI
@@ -95,6 +88,30 @@ private val SOLAR_CORE = Color(0xFFFFFBEB)
 private val MINT_OUTER = Color(0x4006B6D4)
 private val MINT_MID = Color(0x8534D399)
 private val MINT_RING = Color(0xFF6EE7B7)
+
+private val ArcadeButtonFillBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFF38BDF8),
+        Color(0xFF2563EB),
+        Color(0xFF5B21B6)
+    )
+)
+
+private val ArcadeButtonRimBrush = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF67E8F9),
+        Color(0xFFE879F9),
+        Color(0xFF67E8F9)
+    )
+)
+
+private val HomeCenterLegibilityScrim = Brush.verticalGradient(
+    0.0f to Color(0x3805081E),
+    0.20f to Color(0x28060B28),
+    0.50f to Color(0x48070B2A),
+    0.76f to Color(0x18070B2A),
+    1.0f to Color(0x00070B2A)
+)
 
 /**
  * Ultra-fast ZERO-ALLOCATION Canvas renderer for all 4 ball skins
@@ -163,107 +180,28 @@ private fun fillStarPath(
 
 @Composable
 fun BrickQuestSplashScreen() {
-    val infinite = rememberInfiniteTransition(label = "splash")
-    val pulse by infinite.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "pulse"
-    )
-
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BrickQuestColors.CosmicBackdropBrush)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+        Image(
+            painter = painterResource(id = R.drawable.img_home_arcade_bg),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(HomeCenterLegibilityScrim)
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing),
+            contentAlignment = Alignment.Center
         ) {
-            // Neon Emblem
-            Box(
-                modifier = Modifier.size(116.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width
-                    val h = size.height
-                    drawRoundRect(
-                        brush = BrickQuestColors.ArenaBorderBrush,
-                        topLeft = Offset(8f, 8f),
-                        size = Size(w - 16f, h - 16f),
-                        cornerRadius = CornerRadius(28f, 28f),
-                        style = Stroke(width = 7f)
-                    )
-                    // 3 Mini neon bricks
-                    val colors = listOf(Color(0xFFEF4444), Color(0xFF22D3EE), Color(0xFFFACC15))
-                    colors.forEachIndexed { idx, col ->
-                        val bx = w * (0.20f + idx * 0.22f)
-                        val by = h * 0.26f
-                        val bs = w * 0.18f
-                        drawRoundRect(
-                            color = col.copy(alpha = 0.35f),
-                            topLeft = Offset(bx, by),
-                            size = Size(bs, bs),
-                            cornerRadius = CornerRadius(8f, 8f)
-                        )
-                        drawRoundRect(
-                            color = col,
-                            topLeft = Offset(bx, by),
-                            size = Size(bs, bs),
-                            cornerRadius = CornerRadius(8f, 8f),
-                            style = Stroke(width = 3.5f)
-                        )
-                    }
-                    // Neon green laser streak
-                    drawLine(
-                        color = BrickQuestColors.NeonGreen.copy(alpha = 0.45f),
-                        start = Offset(w * 0.16f, h * 0.54f),
-                        end = Offset(w * 0.84f, h * 0.54f),
-                        strokeWidth = 10f * pulse,
-                        cap = StrokeCap.Round
-                    )
-                    drawLine(
-                        color = Color.White,
-                        start = Offset(w * 0.16f, h * 0.54f),
-                        end = Offset(w * 0.84f, h * 0.54f),
-                        strokeWidth = 3f,
-                        cap = StrokeCap.Round
-                    )
-                    // Glowing ball stream
-                    drawBallSkinGraphic(
-                        skin = BallSkin.NEON_PEARL,
-                        center = Offset(w * 0.38f, h * 0.74f),
-                        radius = w * 0.065f
-                    )
-                    drawBallSkinGraphic(
-                        skin = BallSkin.STARLIGHT,
-                        center = Offset(w * 0.62f, h * 0.68f),
-                        radius = w * 0.085f
-                    )
-                }
-            }
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "BRICK BREAKER",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 2.5.sp
-                    ),
-                    color = BrickQuestColors.TextPrimary
-                )
-                Text(
-                    text = "QUEST",
-                    style = MaterialTheme.typography.displaySmall.copy(
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 5.sp
-                    ),
-                    color = BrickQuestColors.NeonCyan
-                )
-            }
+            ArcadeGameTitle(showStageTag = false)
         }
     }
 }
@@ -272,23 +210,34 @@ fun BrickQuestSplashScreen() {
 fun BrickQuestHomeScreen(
     progress: BrickQuestProgress,
     onStartGame: () -> Unit,
-    onPlayCurrentStage: () -> Unit,
-    onStartEndless: () -> Unit,
     onSelectSkin: (BallSkin) -> Unit,
     onToggleSound: () -> Unit,
     onToggleHaptics: () -> Unit
 ) {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BrickQuestColors.CosmicBackdropBrush)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
+        // Full-bleed static AAA arcade game background artwork (zero animations)
+        Image(
+            painter = painterResource(id = R.drawable.img_home_arcade_bg),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Subtle center contrast veil that preserves vivid side bricks and bottom glowing paddle
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(HomeCenterLegibilityScrim)
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .widthIn(max = 600.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .widthIn(max = 560.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -299,15 +248,14 @@ fun BrickQuestHomeScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Stars & Endless Best Pills
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = BrickQuestColors.CardSurfaceElevated,
-                        border = BorderStroke(1.2.dp, BrickQuestColors.NeonGold.copy(alpha = 0.6f))
+                        color = Color(0xC2090F2D),
+                        border = BorderStroke(1.4.dp, BrickQuestColors.NeonGold.copy(alpha = 0.75f))
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
@@ -322,8 +270,8 @@ fun BrickQuestHomeScreen(
                             )
                             Text(
                                 text = "${progress.totalStars}/${progress.maxStars}",
-                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                color = BrickQuestColors.TextPrimary
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                                color = Color.White
                             )
                         }
                     }
@@ -331,8 +279,8 @@ fun BrickQuestHomeScreen(
                     if (progress.endlessBestScore > 0) {
                         Surface(
                             shape = RoundedCornerShape(50),
-                            color = BrickQuestColors.CardSurfaceElevated,
-                            border = BorderStroke(1.2.dp, BrickQuestColors.NeonCyan.copy(alpha = 0.55f))
+                            color = Color(0xC2090F2D),
+                            border = BorderStroke(1.4.dp, BrickQuestColors.NeonCyan.copy(alpha = 0.7f))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
@@ -342,29 +290,28 @@ fun BrickQuestHomeScreen(
                                 Icon(
                                     imageVector = Icons.Filled.EmojiEvents,
                                     contentDescription = "Best Score",
-                                    tint = BrickQuestColors.NeonCyan,
+                                    tint = BrickQuestColors.NeonCyanBright,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
                                     text = "${progress.endlessBestScore}",
-                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                    color = BrickQuestColors.TextPrimary
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold),
+                                    color = Color.White
                                 )
                             }
                         }
                     }
                 }
 
-                // Sound & Haptics Buttons
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    NeonCircleIconToggle(
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ArcadeCircleIconToggle(
                         active = progress.soundEnabled,
                         icon = if (progress.soundEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                         contentDescription = "Toggle Sound",
                         tag = "home_sound_toggle",
                         onClick = onToggleSound
                     )
-                    NeonCircleIconToggle(
+                    ArcadeCircleIconToggle(
                         active = progress.hapticsEnabled,
                         icon = Icons.Filled.Vibration,
                         contentDescription = "Toggle Haptics",
@@ -374,58 +321,42 @@ fun BrickQuestHomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            // Room for the bursting top neon bricks & blazing chrome ball artwork
+            Spacer(modifier = Modifier.height(64.dp))
 
-            // Game Logo Header
-            Text(
-                text = "BRICK BREAKER",
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 2.sp
-                ),
-                color = BrickQuestColors.TextPrimary,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                text = "QUEST",
-                style = MaterialTheme.typography.displayMedium.copy(
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 6.sp
-                ),
-                color = BrickQuestColors.NeonCyan,
-                textAlign = TextAlign.Center
-            )
+            // Bold Colorful 3D Arcade Title Emblem
+            ArcadeGameTitle(showStageTag = true)
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(44.dp))
 
-            // Live Animated Neon Arena Showcase Card (Exact Bricks Breaker Quest vibe!)
-            LiveNeonShowcaseBanner(
-                selectedSkin = progress.selectedSkin,
-                highestStage = progress.highestUnlockedStage,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(178.dp)
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // PRIMARY HUGE 3D GLOWING "START GAME" BUTTON -> OPENS STAGES / LEVELS
+            // PRIMARY GLOSSY NEON 3D "START GAME" BUTTON -> OPENS LEVELS
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Color(0xFF1D4ED8))
+                    .fillMaxWidth(0.84f)
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(Color(0xFF1A145E))
                     .padding(bottom = 5.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(BrickQuestColors.PlayButtonBrush)
-                    .border(1.8.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(ArcadeButtonFillBrush)
+                    .border(2.2.dp, ArcadeButtonRimBrush, RoundedCornerShape(30.dp))
                     .clickable(onClick = onStartGame)
                     .minimumInteractiveComponentSize()
-                    .testTag("home_start_game_button")
-                    .padding(vertical = 18.dp, horizontal = 20.dp),
+                    .testTag("home_start_game_button"),
                 contentAlignment = Alignment.Center
             ) {
+                // Glossy top specular sheen strip
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.86f)
+                        .height(14.dp)
+                        .align(Alignment.TopCenter)
+                        .padding(top = 4.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.24f))
+                )
+
                 Row(
+                    modifier = Modifier.padding(vertical = 16.dp, horizontal = 22.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
@@ -436,19 +367,24 @@ fun BrickQuestHomeScreen(
                         modifier = Modifier.size(34.dp)
                     )
                     Spacer(Modifier.width(8.dp))
-                    Column {
+                    Column(horizontalAlignment = Alignment.Start) {
                         Text(
                             text = "START GAME",
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.Black,
-                                letterSpacing = 1.5.sp
+                                letterSpacing = 1.8.sp,
+                                shadow = Shadow(
+                                    color = Color(0xAA040826),
+                                    offset = Offset(0f, 3f),
+                                    blurRadius = 6f
+                                )
                             ),
                             color = Color.White
                         )
                         Text(
-                            text = "30 Neon Quest Stages  •  Stage ${progress.highestUnlockedStage} Unlocked",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = 0.9f),
+                            text = "Stage ${progress.highestUnlockedStage} Unlocked  •  30 Levels",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = Color(0xFFE0F2FE),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -456,193 +392,166 @@ fun BrickQuestHomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
-            // Secondary Action Row: Quick Continue Stage + Endless Survival Mode
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Quick Play Stage X
-                Surface(
-                    onClick = onPlayCurrentStage,
-                    shape = RoundedCornerShape(18.dp),
-                    color = BrickQuestColors.CardSurfaceElevated,
-                    border = BorderStroke(1.5.dp, BrickQuestColors.NeonCyan.copy(alpha = 0.7f)),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(74.dp)
-                        .testTag("home_continue_stage_button")
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(BrickQuestColors.NeonCyan.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.GridView,
-                                contentDescription = null,
-                                tint = BrickQuestColors.NeonCyan,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = "STAGE ${progress.highestUnlockedStage}",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold),
-                                color = BrickQuestColors.TextPrimary,
-                                maxLines = 1
-                            )
-                            Text(
-                                text = "Quick Play",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = BrickQuestColors.NeonCyanBright
-                            )
-                        }
-                    }
-                }
-
-                // Endless Survival Mode
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(74.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(BrickQuestColors.EndlessButtonBrush)
-                        .border(1.5.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-                        .clickable(onClick = onStartEndless)
-                        .testTag("home_endless_button")
-                        .padding(horizontal = 12.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.25f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.AllInclusive,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = "ENDLESS",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold),
-                                color = Color.White,
-                                maxLines = 1
-                            )
-                            Text(
-                                text = "High Score Run",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.9f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Power-Up Arsenal Preview Strip (Matches Screenshot 1 ⚡ and 🔺!)
+            // Compact Translucent Arsenal + Ball Skins Panel (floats cleanly above the glowing paddle!)
             Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = BrickQuestColors.CardSurface,
-                border = BorderStroke(1.2.dp, BrickQuestColors.CardBorder),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(22.dp),
+                color = Color(0xB8080D2B),
+                border = BorderStroke(1.3.dp, Color(0x8038BDF8)),
+                modifier = Modifier.fillMaxWidth(0.92f)
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    PowerUpInventoryBadge(
-                        title = "Row Lightning",
-                        count = progress.lightningCount,
-                        isLightning = true
-                    )
+                    // Compact Power-Up Inventory Strip
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CompactPowerUpBadge(
+                            title = "Lightning",
+                            count = progress.lightningCount,
+                            isLightning = true
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(26.dp)
+                                .background(Color(0x4567E8F9))
+                        )
+                        CompactPowerUpBadge(
+                            title = "+25 Balls",
+                            count = progress.extraBallsCount,
+                            isLightning = false
+                        )
+                    }
+
                     Box(
                         modifier = Modifier
-                            .width(1.dp)
-                            .height(34.dp)
-                            .background(BrickQuestColors.CardBorder)
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(Color(0x3038BDF8))
                     )
-                    PowerUpInventoryBadge(
-                        title = "+25 Ball Storm",
-                        count = progress.extraBallsCount,
-                        isLightning = false
-                    )
+
+                    // Compact 4-Orb Ball Skins Selector
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "BALL SKIN",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.2.sp
+                            ),
+                            color = Color(0xFFBAE6FD)
+                        )
+                        Text(
+                            text = progress.selectedSkin.displayName,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = BrickQuestColors.NeonGold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BallSkin.entries.forEach { skin ->
+                            val unlocked = progress.isSkinUnlocked(skin)
+                            val selected = progress.selectedSkin == skin
+                            CompactBallSkinOrb(
+                                skin = skin,
+                                unlocked = unlocked,
+                                selected = selected,
+                                onClick = { onSelectSkin(skin) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
-
-            // Ball Skins Selector
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "BALL SKINS",
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 1.2.sp
-                    ),
-                    color = BrickQuestColors.TextSecondary
-                )
-                Text(
-                    text = "Earn ★ to unlock",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = BrickQuestColors.NeonGold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(end = 4.dp)
-            ) {
-                items(BallSkin.entries) { skin ->
-                    val unlocked = progress.isSkinUnlocked(skin)
-                    val selected = progress.selectedSkin == skin
-                    BallSkinCard(
-                        skin = skin,
-                        unlocked = unlocked,
-                        selected = selected,
-                        onClick = { onSelectSkin(skin) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
+            // Generous bottom clearance so the glowing red/silver/cyan paddle in the background stays fully visible
+            Spacer(modifier = Modifier.height(136.dp))
         }
     }
 }
 
 @Composable
-private fun NeonCircleIconToggle(
+private fun ArcadeGameTitle(showStageTag: Boolean) {
+    val brickText = buildAnnotatedString {
+        withStyle(SpanStyle(color = Color(0xFFFF4D2D))) { append("B") }
+        withStyle(SpanStyle(color = Color(0xFFFFC928))) { append("R") }
+        withStyle(SpanStyle(color = Color(0xFF5CE637))) { append("I") }
+        withStyle(SpanStyle(color = Color(0xFFE040FB))) { append("C") }
+        withStyle(SpanStyle(color = Color(0xFF29D8FF))) { append("K") }
+    }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = brickText,
+            style = MaterialTheme.typography.displayLarge.copy(
+                fontSize = 48.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 3.sp,
+                shadow = Shadow(
+                    color = Color(0xF003061A),
+                    offset = Offset(0f, 6f),
+                    blurRadius = 12f
+                )
+            ),
+            textAlign = TextAlign.Center
+        )
+
+        Text(
+            text = "BREAKER",
+            style = MaterialTheme.typography.headlineLarge.copy(
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Black,
+                fontStyle = FontStyle.Italic,
+                letterSpacing = 4.sp,
+                shadow = Shadow(
+                    color = Color(0xE60B296E),
+                    offset = Offset(0f, 5f),
+                    blurRadius = 14f
+                )
+            ),
+            color = Color(0xFF5CEBFF),
+            textAlign = TextAlign.Center
+        )
+
+        if (showStageTag) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = Color(0xB0090E2E),
+                border = BorderStroke(1.2.dp, Color(0x9938BDF8))
+            ) {
+                Text(
+                    text = "QUEST  •  ARCADE EDITION",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 2.sp
+                    ),
+                    color = Color(0xFFE0F2FE),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArcadeCircleIconToggle(
     active: Boolean,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
@@ -651,12 +560,12 @@ private fun NeonCircleIconToggle(
 ) {
     Surface(
         shape = CircleShape,
-        color = if (active) BrickQuestColors.CardSurfaceElevated else BrickQuestColors.CardSurface,
+        color = if (active) Color(0xD4111D52) else Color(0xB3090D24),
         border = BorderStroke(
-            width = 1.4.dp,
-            color = if (active) BrickQuestColors.NeonCyan else BrickQuestColors.CardBorder
+            width = 1.6.dp,
+            color = if (active) Color(0xFF38BDF8) else Color(0x6694A3B8)
         ),
-        modifier = Modifier.size(44.dp)
+        modifier = Modifier.size(46.dp)
     ) {
         IconButton(
             onClick = onClick,
@@ -667,33 +576,33 @@ private fun NeonCircleIconToggle(
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = if (active) BrickQuestColors.NeonCyanBright else BrickQuestColors.TextMuted,
-                modifier = Modifier.size(20.dp)
+                tint = if (active) Color(0xFF7DD3FC) else Color(0xFF94A3B8),
+                modifier = Modifier.size(21.dp)
             )
         }
     }
 }
 
 @Composable
-private fun PowerUpInventoryBadge(
+private fun CompactPowerUpBadge(
     title: String,
     count: Int,
     isLightning: Boolean
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(32.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
                         listOf(BrickQuestColors.CrimsonGlow, BrickQuestColors.CrimsonDeep)
                     )
                 )
-                .border(1.5.dp, BrickQuestColors.CrimsonBorder, CircleShape),
+                .border(1.4.dp, BrickQuestColors.CrimsonBorder, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             if (isLightning) {
@@ -701,10 +610,10 @@ private fun PowerUpInventoryBadge(
                     imageVector = Icons.Filled.Bolt,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             } else {
-                Canvas(modifier = Modifier.size(22.dp)) {
+                Canvas(modifier = Modifier.size(18.dp)) {
                     val r = size.minDimension * 0.14f
                     val rows = listOf(1, 2, 3)
                     rows.forEachIndexed { rowIdx, countInRow ->
@@ -724,254 +633,105 @@ private fun PowerUpInventoryBadge(
         Column {
             Text(
                 text = "x $count",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black),
-                color = BrickQuestColors.TextPrimary
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Black),
+                color = Color.White
             )
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelSmall,
-                color = BrickQuestColors.TextSecondary
+                color = Color(0xFFBAE6FD)
             )
         }
     }
 }
 
 @Composable
-private fun BallSkinCard(
+private fun CompactBallSkinOrb(
     skin: BallSkin,
     unlocked: Boolean,
     selected: Boolean,
-    onClick: () -> Unit
-) {
-    val borderColor = when {
-        selected -> BrickQuestColors.NeonCyan
-        unlocked -> BrickQuestColors.CardBorder
-        else -> BrickQuestColors.CardBorder.copy(alpha = 0.5f)
-    }
-
-    Surface(
-        onClick = onClick,
-        enabled = unlocked,
-        shape = RoundedCornerShape(16.dp),
-        color = if (selected) BrickQuestColors.CardSurfaceElevated else BrickQuestColors.CardSurface,
-        border = BorderStroke(if (selected) 2.dp else 1.2.dp, borderColor),
-        modifier = Modifier
-            .width(104.dp)
-            .testTag("ball_skin_${skin.name.lowercase()}")
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Box(
-                modifier = Modifier.size(44.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawBallSkinGraphic(
-                        skin = skin,
-                        center = center,
-                        radius = size.minDimension * 0.24f
-                    )
-                }
-                if (selected) {
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = "Selected",
-                        tint = BrickQuestColors.NeonCyan,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .align(Alignment.TopEnd)
-                    )
-                } else if (!unlocked) {
-                    Icon(
-                        imageVector = Icons.Filled.Lock,
-                        contentDescription = "Locked",
-                        tint = BrickQuestColors.TextMuted,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .align(Alignment.TopEnd)
-                    )
-                }
-            }
-
-            Text(
-                text = skin.displayName,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                color = if (unlocked) BrickQuestColors.TextPrimary else BrickQuestColors.TextMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            if (!unlocked) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Star,
-                        contentDescription = null,
-                        tint = BrickQuestColors.NeonGold,
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Text(
-                        text = "${skin.unlockStars}",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = BrickQuestColors.NeonGold
-                    )
-                }
-            } else {
-                Text(
-                    text = if (selected) "EQUIPPED" else "USE",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = if (selected) BrickQuestColors.NeonCyan else BrickQuestColors.TextSecondary
-                )
-            }
-        }
-    }
-}
-
-private val SHOWCASE_PALETTE = arrayOf(
-    Color(0xFFEF4444), Color(0xFFEF4444), Color(0xFFFACC15),
-    Color(0xFF22D3EE), Color(0xFF22D3EE), Color(0xFF22C55E), Color(0xFFA855F7)
-)
-
-@Composable
-private fun LiveNeonShowcaseBanner(
-    selectedSkin: BallSkin,
-    highestStage: Int,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val infinite = rememberInfiniteTransition(label = "showcase")
-    val animTState = infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Restart),
-        label = "balls"
-    )
-    val laserPulseState = infinite.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(750), RepeatMode.Reverse),
-        label = "laser"
-    )
-    val starPath = remember { Path() }
+    val borderColor = when {
+        selected -> Color(0xFF38BDF8)
+        unlocked -> Color(0x55818CF8)
+        else -> Color(0x3364748B)
+    }
 
-    Box(
+    Column(
         modifier = modifier
-            .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF040915))
+            .padding(horizontal = 3.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (selected) Color(0x881D2B6E) else Color(0x550C1338))
+            .border(if (selected) 1.8.dp else 1.dp, borderColor, RoundedCornerShape(14.dp))
+            .clickable(enabled = unlocked, onClick = onClick)
+            .minimumInteractiveComponentSize()
+            .testTag("ball_skin_${skin.name.lowercase()}")
+            .padding(vertical = 7.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            // Read animated values ONLY inside draw phase -> zero Home recompositions!
-            val animT = animTState.value
-            val laserPulse = laserPulseState.value
-            val pad = 10.dp.toPx()
-            val innerW = size.width - pad * 2
-            val innerH = size.height - pad * 2
-            val frameCorner = CornerRadius(16.dp.toPx(), 16.dp.toPx())
-            val brickCorner = CornerRadius(6.dp.toPx(), 6.dp.toPx())
-            val brickBorder = Stroke(width = 1.6.dp.toPx())
-
-            drawRoundRect(
-                brush = BrickQuestColors.ArenaBorderBrush,
-                topLeft = Offset(pad, pad),
-                size = Size(innerW, innerH),
-                cornerRadius = frameCorner,
-                alpha = 0.25f,
-                style = Stroke(width = 8.dp.toPx())
-            )
-            drawRoundRect(
-                brush = BrickQuestColors.ArenaBorderBrush,
-                topLeft = Offset(pad, pad),
-                size = Size(innerW, innerH),
-                cornerRadius = frameCorner,
-                style = Stroke(width = 2.dp.toPx())
-            )
-
-            val cols = 7
-            val brickW = (innerW * 0.80f) / cols
-            val brickH = brickW * 0.72f
-            val startX = pad + (innerW - brickW * cols) / 2f
-            val startY = pad + innerH * 0.14f
-            val inset = 3.dp.toPx()
-            val bw = brickW - inset * 2f
-            val bh = brickH - inset * 2f
-            val cyanCol = Color(0xFF22D3EE)
-
-            for (r in 0..1) {
-                for (c in 0 until cols) {
-                    val col = if (r == 1 && c in 1..5) cyanCol else SHOWCASE_PALETTE[(c + r * 2) % SHOWCASE_PALETTE.size]
-                    val left = startX + c * brickW + inset
-                    val top = startY + r * brickH + inset
-                    drawRoundRect(color = col.copy(alpha = 0.22f), topLeft = Offset(left, top), size = Size(bw, bh), cornerRadius = brickCorner)
-                    drawRoundRect(color = col, topLeft = Offset(left, top), size = Size(bw, bh), cornerRadius = brickCorner, style = brickBorder)
-                }
-            }
-
-            val laserY = startY + brickH * 1.5f
-            drawLine(color = BrickQuestColors.NeonGreen.copy(alpha = 0.35f * laserPulse), start = Offset(pad + 6f, laserY), end = Offset(size.width - pad - 6f, laserY), strokeWidth = 10.dp.toPx(), cap = StrokeCap.Round)
-            drawLine(color = BrickQuestColors.NeonGreen.copy(alpha = 0.85f * laserPulse), start = Offset(pad + 6f, laserY), end = Offset(size.width - pad - 6f, laserY), strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
-            drawLine(color = Color.White.copy(alpha = 0.9f * laserPulse), start = Offset(pad + 6f, laserY), end = Offset(size.width - pad - 6f, laserY), strokeWidth = 1.5.dp.toPx(), cap = StrokeCap.Round)
-
-            val originX = pad + innerW * 0.44f
-            val originY = pad + innerH * 0.88f
-            val targetX = pad + innerW * 0.20f
-            val targetY = startY + brickH * 1.6f
-            val bounceX = pad + innerW * 0.72f
-            val bounceY = pad + innerH * 0.80f
-            val ballR = 5.5.dp.toPx()
-
-            for (i in 0 until 7) {
-                val p = (animT + i * 0.14f) % 1f
-                val pos = if (p < 0.5f) {
-                    val u = p * 2f
-                    Offset(originX + (targetX - originX) * u, originY + (targetY - originY) * u)
-                } else {
-                    val u = (p - 0.5f) * 2f
-                    Offset(targetX + (bounceX - targetX) * u, targetY + (bounceY - targetY) * u)
-                }
+        Box(
+            modifier = Modifier.size(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
                 drawBallSkinGraphic(
-                    skin = selectedSkin,
-                    center = pos,
-                    radius = ballR,
-                    rotationRad = animT * 6.28f,
-                    reusableStarPath = starPath
+                    skin = skin,
+                    center = center,
+                    radius = size.minDimension * 0.25f
                 )
             }
-
-            val sparkBaseX = targetX + 8.dp.toPx()
-            val sparkBaseY = targetY
-            val sparkSize = 5.dp.toPx()
-            val sparkStroke = Stroke(width = 1.3.dp.toPx())
-            val sparkColor = Color(0xFF67E8F9).copy(alpha = 0.75f * laserPulse)
-            for (i in 0 until 8) {
-                val a = i * 0.78f + animT * 2f
-                val dist = (6.dp.toPx() + (i % 3) * 7.dp.toPx()) * laserPulse
-                drawRect(
-                    color = sparkColor,
-                    topLeft = Offset(sparkBaseX + cos(a) * dist, sparkBaseY + sin(a) * dist),
-                    size = Size(sparkSize, sparkSize),
-                    style = sparkStroke
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier
+                        .size(13.dp)
+                        .align(Alignment.TopEnd)
+                )
+            } else if (!unlocked) {
+                Icon(
+                    imageVector = Icons.Filled.Lock,
+                    contentDescription = "Locked",
+                    tint = Color(0xFF94A3B8),
+                    modifier = Modifier
+                        .size(13.dp)
+                        .align(Alignment.TopEnd)
                 )
             }
         }
 
-        // Bottom-right subtle stage pill overlay
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = BrickQuestColors.CardSurface.copy(alpha = 0.88f),
-            border = BorderStroke(1.dp, BrickQuestColors.NeonCyan.copy(alpha = 0.6f)),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(18.dp)
-        ) {
+        if (!unlocked) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Star,
+                    contentDescription = null,
+                    tint = BrickQuestColors.NeonGold,
+                    modifier = Modifier.size(10.dp)
+                )
+                Text(
+                    text = "${skin.unlockStars}",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = BrickQuestColors.NeonGold
+                )
+            }
+        } else {
             Text(
-                text = "NEXT: STAGE $highestStage",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                color = BrickQuestColors.NeonCyanBright,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                text = if (selected) "ON" else "USE",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold
+                ),
+                color = if (selected) Color(0xFF67E8F9) else Color(0xFFCBD5E1)
             )
         }
     }
