@@ -44,7 +44,7 @@ class StageBlueprint(
  */
 object StageWorlds {
     private val NAMES = arrayOf(
-        "Neon Arcade", "Laser Core", "Cosmic Citadel", "Crystal Caves", "Solar Forge",
+        "Neon Horizon", "Laser Core", "Cosmic Citadel", "Crystal Caves", "Solar Forge",
         "Frozen Grid", "Toxic Labs", "Thunder Peaks", "Ruby Ruins", "Void Station",
         "Pixel Jungle", "Plasma Sea", "Golden Vault", "Shadow Maze", "Nova Gardens",
         "Iron Fortress", "Aurora Fields", "Magma Depths", "Quantum Rift", "Starlight Tower",

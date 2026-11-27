@@ -445,10 +445,13 @@ private fun StageTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val clearedBrush = remember(accent) {
+        Brush.verticalGradient(listOf(accent.copy(alpha = 0.28f), BrickQuestColors.CardSurfaceElevated))
+    }
     val bgBrush = when {
         isCurrent -> CURRENT_STAGE_BRUSH
         isBoss && unlocked -> BOSS_STAGE_BRUSH
-        unlocked && stars > 0 -> Brush.verticalGradient(listOf(accent.copy(alpha = 0.28f), BrickQuestColors.CardSurfaceElevated))
+        unlocked && stars > 0 -> clearedBrush
         unlocked -> UNLOCKED_STAGE_BRUSH
         else -> LOCKED_STAGE_BRUSH
     }

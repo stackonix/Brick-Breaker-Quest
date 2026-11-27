@@ -1,6 +1,11 @@
 package com.brickbreaker.game.brickquest.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -12,7 +17,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,13 +53,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -63,12 +67,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.brickbreaker.game.BuildConfig
 import com.brickbreaker.game.brickquest.data.BrickQuestProgress
 import com.brickbreaker.game.brickquest.data.TOTAL_QUEST_STAGES
 import com.brickbreaker.game.brickquest.engine.BrickBreakerCanvas
@@ -79,6 +84,30 @@ import com.brickbreaker.game.brickquest.engine.GameEngineLoop
 import com.brickbreaker.game.brickquest.engine.TurnPhase
 import com.brickbreaker.game.data.SoundHapticManager
 import kotlin.math.abs
+import kotlinx.coroutines.delay
+
+private val StarProgressBrush = Brush.horizontalGradient(
+    listOf(Color(0xFF38BDF8), Color(0xFF93C5FD), Color.White)
+)
+
+/**
+ * Isolated observable HUD state so score/star/timer ticks ONLY recompose the tiny HUD leaf
+ * that displays them — never the root screen or the 60/120fps Canvas viewport!
+ */
+@Stable
+private class GameHudState {
+    var score by mutableIntStateOf(0)
+    var starRatio by mutableFloatStateOf(0f)
+    var starCount by mutableIntStateOf(0)
+    var phase by mutableStateOf(TurnPhase.AIMING)
+    var turbo by mutableStateOf(false)
+    var turnNumber by mutableIntStateOf(1)
+    var showDragHint by mutableStateOf(true)
+    var multiBallSec by mutableIntStateOf(0)
+    var laserSec by mutableIntStateOf(0)
+    var paddleSec by mutableIntStateOf(0)
+    var turnsLeft by mutableIntStateOf(99)
+}
 
 @Composable
 fun BrickQuestGameScreen(
@@ -105,63 +134,51 @@ fun BrickQuestGameScreen(
 
     var isPaused by remember(sessionNonce) { mutableStateOf(false) }
     var outcomeHandled by remember(sessionNonce) { mutableStateOf(false) }
-
-    // HUD states ONLY mutate when values actually change (and score/bar throttled to ~9 Hz!)
-    var hudScore by remember(sessionNonce) { mutableIntStateOf(0) }
-    var hudStarRatio by remember(sessionNonce) { mutableFloatStateOf(0f) }
-    var hudStarCount by remember(sessionNonce) { mutableIntStateOf(0) }
-    var hudPhase by remember(sessionNonce) { mutableStateOf(TurnPhase.AIMING) }
-    var hudTurbo by remember(sessionNonce) { mutableStateOf(false) }
-    var hudTurnNumber by remember(sessionNonce) { mutableIntStateOf(1) }
-    var showDragHint by remember(sessionNonce) { mutableStateOf(true) }
-    var hudMultiBallSec by remember(sessionNonce) { mutableIntStateOf(0) }
-    var hudLaserSec by remember(sessionNonce) { mutableIntStateOf(0) }
-    var hudPaddleSec by remember(sessionNonce) { mutableIntStateOf(0) }
-    var hudTurnsLeft by remember(sessionNonce) { mutableIntStateOf(99) }
+    val hud = remember(sessionNonce) { GameHudState() }
     val lastScoreSyncRef = remember(sessionNonce) { LongArray(1) { 0L } }
 
     fun syncHudFromEngine(frameTimeMillis: Long = -1L, force: Boolean = false) {
-        val phaseChanged = hudPhase != gameEngine.phase
-        if (phaseChanged) hudPhase = gameEngine.phase
-        if (hudTurbo != gameEngine.turboSpeed) hudTurbo = gameEngine.turboSpeed
-        if (hudTurnNumber != gameEngine.turnNumber) hudTurnNumber = gameEngine.turnNumber
+        val phaseChanged = hud.phase != gameEngine.phase
+        if (phaseChanged) hud.phase = gameEngine.phase
+        if (hud.turbo != gameEngine.turboSpeed) hud.turbo = gameEngine.turboSpeed
+        if (hud.turnNumber != gameEngine.turnNumber) hud.turnNumber = gameEngine.turnNumber
         if (phaseChanged || force) {
             val tl = gameEngine.turnsUntilDanger
-            if (hudTurnsLeft != tl) hudTurnsLeft = tl
+            if (hud.turnsLeft != tl) hud.turnsLeft = tl
         }
         val wantHint = gameEngine.phase == TurnPhase.AIMING && !gameEngine.isDraggingAim && gameEngine.turnNumber == 1
-        if (showDragHint != wantHint) showDragHint = wantHint
+        if (hud.showDragHint != wantHint) hud.showDragHint = wantHint
 
         // Throttle score, star bar & active bonus countdown updates (~110ms)
         val shouldSyncScore = force || phaseChanged || frameTimeMillis < 0L ||
             (frameTimeMillis - lastScoreSyncRef[0] >= 110L)
         if (shouldSyncScore) {
             if (frameTimeMillis >= 0L) lastScoreSyncRef[0] = frameTimeMillis
-            if (hudScore != gameEngine.score) hudScore = gameEngine.score
+            if (hud.score != gameEngine.score) hud.score = gameEngine.score
             val sr = gameEngine.starProgressRatio
-            if (abs(hudStarRatio - sr) > 0.012f || sr == 0f || sr >= 1f) hudStarRatio = sr
+            if (abs(hud.starRatio - sr) > 0.012f || sr == 0f || sr >= 1f) hud.starRatio = sr
             val sc = gameEngine.currentStarCount
-            if (hudStarCount != sc) hudStarCount = sc
+            if (hud.starCount != sc) hud.starCount = sc
             val mb = kotlin.math.ceil(gameEngine.multiBallTimer).toInt().coerceAtLeast(0)
             val ls = kotlin.math.ceil(gameEngine.laserBeamTimer).toInt().coerceAtLeast(0)
             val pw = kotlin.math.ceil(gameEngine.paddleExpandTimer).toInt().coerceAtLeast(0)
-            if (hudMultiBallSec != mb) hudMultiBallSec = mb
-            if (hudLaserSec != ls) hudLaserSec = ls
-            if (hudPaddleSec != pw) hudPaddleSec = pw
+            if (hud.multiBallSec != mb) hud.multiBallSec = mb
+            if (hud.laserSec != ls) hud.laserSec = ls
+            if (hud.paddleSec != pw) hud.paddleSec = pw
         }
 
         if (!outcomeHandled) {
             when (gameEngine.phase) {
                 TurnPhase.STAGE_CLEAR -> {
                     outcomeHandled = true
-                    hudScore = gameEngine.score
-                    hudStarRatio = gameEngine.starProgressRatio
-                    hudStarCount = gameEngine.currentStarCount
+                    hud.score = gameEngine.score
+                    hud.starRatio = gameEngine.starProgressRatio
+                    hud.starCount = gameEngine.currentStarCount
                     onStageCleared(stageNumber, gameEngine.currentStarCount.coerceAtLeast(1))
                 }
                 TurnPhase.GAME_OVER -> {
                     outcomeHandled = true
-                    hudScore = gameEngine.score
+                    hud.score = gameEngine.score
                     if (mode == BrickQuestMode.ENDLESS) {
                         onEndlessFinished(gameEngine.score)
                     } else {
@@ -173,6 +190,13 @@ fun BrickQuestGameScreen(
         }
     }
 
+    val onAimStartedStable = remember(hud) {
+        { if (hud.showDragHint) hud.showDragHint = false }
+    }
+    val onShotFiredStable = remember(gameEngine, hud) {
+        { syncHudFromEngine(force = true) }
+    }
+
     BackHandler(enabled = true) {
         if (gameEngine.phase == TurnPhase.STAGE_CLEAR || gameEngine.phase == TurnPhase.GAME_OVER) {
             if (mode == BrickQuestMode.STAGE) onOpenStages() else onGoHome()
@@ -181,7 +205,7 @@ fun BrickQuestGameScreen(
         }
     }
 
-    // Core 60 FPS Game Loop powered by LaunchedEffect + withFrameNanos inside GameEngine.kt
+    // Core 60/120 FPS VSync Game Loop (single withFrameNanos loop — also feeds debug FPS!)
     GameEngineLoop(
         engine = gameEngine,
         isPaused = isPaused,
@@ -212,16 +236,12 @@ fun BrickQuestGameScreen(
                 .fillMaxSize()
                 .widthIn(max = 640.dp)
         ) {
-            // TOP HUD
+            // TOP HUD (isolated scope — score updates NEVER recompose the Canvas!)
             GameTopHudBar(
-                score = hudScore,
-                starRatio = hudStarRatio,
-                starCount = hudStarCount,
-                turboActive = hudTurbo,
-                isShooting = hudPhase == TurnPhase.SHOOTING,
+                hud = hud,
                 onToggleTurbo = {
                     if (gameEngine.toggleTurbo()) {
-                        hudTurbo = gameEngine.turboSpeed
+                        hud.turbo = gameEngine.turboSpeed
                         soundHaptic.playTap(progress.soundEnabled, progress.hapticsEnabled)
                     }
                 },
@@ -231,7 +251,7 @@ fun BrickQuestGameScreen(
                 }
             )
 
-            // CENTER 60FPS CANVAS GAME ENGINE VIEWPORT
+            // CENTER 60/120FPS CANVAS GAME ENGINE VIEWPORT
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -241,109 +261,36 @@ fun BrickQuestGameScreen(
                     engine = gameEngine,
                     skin = progress.selectedSkin,
                     isPaused = isPaused,
-                    onAimStarted = {
-                        if (showDragHint) showDragHint = false
-                    },
-                    onShotFired = { syncHudFromEngine() },
+                    onAimStarted = onAimStartedStable,
+                    onShotFired = onShotFiredStable,
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Power-up timers float over the arena so the arena never resizes mid-game
-                // (resizing used to move every brick and rebuild the arena bitmap = a visible hitch).
-                if (hudMultiBallSec > 0 || hudLaserSec > 0 || hudPaddleSec > 0) {
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (hudMultiBallSec > 0) {
-                            ActivePowerUpTimerChip(
-                                label = "×2 MULTI-BALL ${hudMultiBallSec}s",
-                                accent = Color(0xFFEC4899),
-                                tag = "active_bonus_multiball"
-                            )
-                        }
-                        if (hudLaserSec > 0) {
-                            ActivePowerUpTimerChip(
-                                label = "⚡ LASER ${hudLaserSec}s",
-                                accent = Color(0xFF4ADE80),
-                                tag = "active_bonus_laser"
-                            )
-                        }
-                        if (hudPaddleSec > 0) {
-                            ActivePowerUpTimerChip(
-                                label = "↔ WIDE ${hudPaddleSec}s",
-                                accent = Color(0xFF38BDF8),
-                                tag = "active_bonus_paddle"
-                            )
-                        }
-                    }
-                }
-
-                // Danger warning when the bricks are one drop away from the bottom line
-                if (hudPhase == TurnPhase.AIMING && hudTurnsLeft <= 1 && mode == BrickQuestMode.STAGE) {
-                    // Plain Text (not Surface): Material3 Surface would swallow aim touches.
-                    Text(
-                        text = "LAST TURN! Use ⚡ Lightning if needed",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black),
-                        color = Color(0xFFFECACA),
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 84.dp)
-                            .background(Color(0xFF450A0A).copy(alpha = 0.9f), RoundedCornerShape(50))
-                            .border(1.4.dp, Color(0xFFF87171), RoundedCornerShape(50))
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
-                }
-
-                if (SHOW_FPS_OVERLAY) {
-                    FpsOverlay(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(start = 8.dp, top = 4.dp)
-                    )
-                }
-
-                if (showDragHint) {
-                    // Plain Text (not Surface) so dragging can start on top of the hint.
-                    Text(
-                        text = "DRAG TO AIM  •  SLIDE BAR TO BOUNCE",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.8.sp
-                        ),
-                        color = BrickQuestColors.NeonCyanBright,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 34.dp)
-                            .background(BrickQuestColors.CardSurface.copy(alpha = 0.86f), RoundedCornerShape(50))
-                            .border(1.dp, BrickQuestColors.NeonCyan.copy(alpha = 0.7f), RoundedCornerShape(50))
-                            .padding(horizontal = 16.dp, vertical = 7.dp)
-                    )
-                }
+                // Floating power-up timers, warnings, FPS badge & drag hint (isolated recomposition!)
+                ArenaFloatingOverlays(
+                    hud = hud,
+                    mode = mode
+                )
             }
 
-            // BOTTOM POWER-UPS & RECALL CONTROLS
+            // BOTTOM POWER-UPS & RECALL CONTROLS (isolated scope!)
             GameBottomControlsBar(
                 mode = mode,
                 stageNumber = stageNumber,
-                turnNumber = hudTurnNumber,
-                isShooting = hudPhase == TurnPhase.SHOOTING,
+                hud = hud,
                 lightningCount = progress.lightningCount,
                 extraBallsCount = progress.extraBallsCount,
                 onUseLightning = {
                     onUseLightning {
                         val applied = gameEngine.triggerLightningRowBlast()
-                        if (applied) syncHudFromEngine()
+                        if (applied) syncHudFromEngine(force = true)
                         applied
                     }
                 },
                 onUseExtraBalls = {
                     onUseExtraBalls {
                         val applied = gameEngine.triggerExtraBallsStorm()
-                        if (applied) syncHudFromEngine()
+                        if (applied) syncHudFromEngine(force = true)
                         applied
                     }
                 },
@@ -354,120 +301,175 @@ fun BrickQuestGameScreen(
             )
         }
 
-        // PAUSE OVERLAY
-        if (isPaused && hudPhase != TurnPhase.STAGE_CLEAR && hudPhase != TurnPhase.GAME_OVER) {
-            GamePauseOverlay(
-                mode = mode,
-                stageNumber = stageNumber,
-                soundEnabled = progress.soundEnabled,
-                hapticsEnabled = progress.hapticsEnabled,
-                onResume = { isPaused = false },
-                onRestart = {
-                    isPaused = false
-                    onRestart()
-                },
-                onToggleSound = onToggleSound,
-                onToggleHaptics = onToggleHaptics,
-                onStages = {
-                    isPaused = false
-                    onOpenStages()
-                },
-                onHome = {
-                    isPaused = false
-                    onGoHome()
-                }
-            )
-        }
-
-        // STAGE CLEAR OVERLAY
-        if (hudPhase == TurnPhase.STAGE_CLEAR) {
-            StageClearOverlay(
-                stageNumber = stageNumber,
-                score = hudScore,
-                stars = hudStarCount.coerceAtLeast(1),
-                hasNextStage = stageNumber < TOTAL_QUEST_STAGES,
-                onNextStage = onNextStage,
-                onReplay = onRestart,
-                onStages = onOpenStages
-            )
-        }
-
-        // GAME OVER OVERLAY
-        if (hudPhase == TurnPhase.GAME_OVER) {
-            GameOverOverlay(
-                mode = mode,
-                stageNumber = stageNumber,
-                score = hudScore,
-                bestScore = maxOf(hudScore, progress.endlessBestScore),
-                onRetry = onRestart,
-                onStages = onOpenStages,
-                onHome = onGoHome
-            )
-        }
+        // PAUSE / STAGE CLEAR / GAME OVER OVERLAYS (isolated scope!)
+        GameModalOverlays(
+            hud = hud,
+            mode = mode,
+            stageNumber = stageNumber,
+            isPaused = isPaused,
+            progress = progress,
+            onResume = { isPaused = false },
+            onRestart = {
+                isPaused = false
+                onRestart()
+            },
+            onNextStage = onNextStage,
+            onToggleSound = onToggleSound,
+            onToggleHaptics = onToggleHaptics,
+            onOpenStages = {
+                isPaused = false
+                onOpenStages()
+            },
+            onGoHome = {
+                isPaused = false
+                onGoHome()
+            }
+        )
     }
 }
 
-/**
- * Shows "FPS xx | worst yy ms" over the arena in DEBUG builds only.
- * Release / Play Store builds never show it. To measure a release build temporarily,
- * replace BuildConfig.DEBUG with true (and revert before publishing).
- */
-private val SHOW_FPS_OVERLAY: Boolean = BuildConfig.DEBUG
-
-/**
- * Lightweight FPS meter. Counts frame callbacks and the slowest frame in each
- * half-second window; the text updates only twice per second, so it adds no
- * per-frame recomposition.
- * "worst" above ~20 ms on a 60 Hz phone means a visible stutter happened.
- */
 @Composable
-private fun FpsOverlay(modifier: Modifier = Modifier) {
-    var label by remember { mutableStateOf("FPS --") }
-    LaunchedEffect(Unit) {
-        var windowStart = -1L
-        var lastFrame = -1L
-        var frames = 0
-        var worstNanos = 0L
-        while (true) {
-            withFrameNanos { now ->
-                if (lastFrame > 0L) {
-                    val d = now - lastFrame
-                    if (d > worstNanos) worstNanos = d
-                }
-                lastFrame = now
-                if (windowStart < 0L) windowStart = now
-                frames++
-                val elapsed = now - windowStart
-                if (elapsed >= 500_000_000L) {
-                    val fps = (frames * 1_000_000_000L / elapsed).toInt()
-                    label = "FPS $fps | worst ${worstNanos / 1_000_000L} ms"
-                    windowStart = now
-                    frames = 0
-                    worstNanos = 0L
-                }
+private fun androidx.compose.foundation.layout.BoxScope.ArenaFloatingOverlays(
+    hud: GameHudState,
+    mode: BrickQuestMode
+) {
+    if (hud.multiBallSec > 0 || hud.laserSec > 0 || hud.paddleSec > 0) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (hud.multiBallSec > 0) {
+                ActivePowerUpTimerChip(
+                    label = "×2 MULTI-BALL ${hud.multiBallSec}s",
+                    accent = Color(0xFFEC4899),
+                    tag = "active_bonus_multiball"
+                )
+            }
+            if (hud.laserSec > 0) {
+                ActivePowerUpTimerChip(
+                    label = "⚡ LASER ${hud.laserSec}s",
+                    accent = Color(0xFF4ADE80),
+                    tag = "active_bonus_laser"
+                )
+            }
+            if (hud.paddleSec > 0) {
+                ActivePowerUpTimerChip(
+                    label = "↔ WIDE ${hud.paddleSec}s",
+                    accent = Color(0xFF38BDF8),
+                    tag = "active_bonus_paddle"
+                )
             }
         }
     }
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-        color = Color(0xFF4ADE80),
-        modifier = modifier
-            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-    )
+
+    if (hud.phase == TurnPhase.AIMING && hud.turnsLeft <= 1 && mode == BrickQuestMode.STAGE) {
+        Text(
+            text = "LAST TURN! Use ⚡ Lightning if needed",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black),
+            color = Color(0xFFFECACA),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 136.dp)
+                .background(Color(0xFF450A0A).copy(alpha = 0.9f), RoundedCornerShape(50))
+                .border(1.4.dp, Color(0xFFF87171), RoundedCornerShape(50))
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+        )
+    }
+
+    if (hud.showDragHint) {
+        Text(
+            text = "DRAG TO AIM  •  SLIDE BELOW TO MOVE BAR",
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.7.sp
+            ),
+            color = BrickQuestColors.NeonCyanBright,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 20.dp)
+                .background(BrickQuestColors.CardSurface.copy(alpha = 0.88f), RoundedCornerShape(50))
+                .border(1.dp, BrickQuestColors.NeonCyan.copy(alpha = 0.7f), RoundedCornerShape(50))
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun GameModalOverlays(
+    hud: GameHudState,
+    mode: BrickQuestMode,
+    stageNumber: Int,
+    isPaused: Boolean,
+    progress: BrickQuestProgress,
+    onResume: () -> Unit,
+    onRestart: () -> Unit,
+    onNextStage: () -> Unit,
+    onToggleSound: () -> Unit,
+    onToggleHaptics: () -> Unit,
+    onOpenStages: () -> Unit,
+    onGoHome: () -> Unit
+) {
+    val phase = hud.phase
+    if (isPaused && phase != TurnPhase.STAGE_CLEAR && phase != TurnPhase.GAME_OVER) {
+        GamePauseOverlay(
+            mode = mode,
+            stageNumber = stageNumber,
+            soundEnabled = progress.soundEnabled,
+            hapticsEnabled = progress.hapticsEnabled,
+            onResume = onResume,
+            onRestart = onRestart,
+            onToggleSound = onToggleSound,
+            onToggleHaptics = onToggleHaptics,
+            onStages = onOpenStages,
+            onHome = onGoHome
+        )
+    }
+
+    if (phase == TurnPhase.STAGE_CLEAR) {
+        StageClearOverlay(
+            stageNumber = stageNumber,
+            score = hud.score,
+            stars = hud.starCount.coerceAtLeast(1),
+            hasNextStage = stageNumber < TOTAL_QUEST_STAGES,
+            onNextStage = onNextStage,
+            onReplay = onRestart,
+            onStages = onOpenStages
+        )
+    }
+
+    if (phase == TurnPhase.GAME_OVER) {
+        GameOverOverlay(
+            mode = mode,
+            stageNumber = stageNumber,
+            score = hud.score,
+            bestScore = maxOf(hud.score, progress.endlessBestScore),
+            onRetry = onRestart,
+            onStages = onOpenStages,
+            onHome = onGoHome
+        )
+    }
 }
 
 @Composable
 private fun GameTopHudBar(
-    score: Int,
-    starRatio: Float,
-    starCount: Int,
-    turboActive: Boolean,
-    isShooting: Boolean,
+    hud: GameHudState,
     onToggleTurbo: () -> Unit,
     onPauseClick: () -> Unit
 ) {
+    val score = hud.score
+    val starCount = hud.starCount
+    val turboActive = hud.turbo
+    val isShooting = hud.phase == TurnPhase.SHOOTING
+    // GPU-only smooth bar animation (read strictly inside graphicsLayer -> ZERO layout passes!)
+    val animRatio by animateFloatAsState(
+        targetValue = hud.starRatio.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "star_bar_fill"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -535,14 +537,12 @@ private fun GameTopHudBar(
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(starRatio.coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(50))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(Color(0xFF38BDF8), Color(0xFF93C5FD), Color.White)
-                                )
-                            )
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                transformOrigin = TransformOrigin(0f, 0.5f)
+                                scaleX = animRatio
+                            }
+                            .background(StarProgressBrush)
                     )
                 }
 
@@ -619,11 +619,21 @@ private fun ActivePowerUpTimerChip(
 
 @Composable
 private fun StarProgressPip(earned: Boolean) {
+    val scale by animateFloatAsState(
+        targetValue = if (earned) 1.16f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "star_pip_scale"
+    )
     Icon(
         imageVector = Icons.Filled.Star,
         contentDescription = null,
         tint = if (earned) Color(0xFFFEF08A) else Color(0xFF1E293B),
-        modifier = Modifier.size(16.dp)
+        modifier = Modifier
+            .size(16.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
     )
 }
 
@@ -631,14 +641,15 @@ private fun StarProgressPip(earned: Boolean) {
 private fun GameBottomControlsBar(
     mode: BrickQuestMode,
     stageNumber: Int,
-    turnNumber: Int,
-    isShooting: Boolean,
+    hud: GameHudState,
     lightningCount: Int,
     extraBallsCount: Int,
     onUseLightning: () -> Unit,
     onUseExtraBalls: () -> Unit,
     onRecallBalls: () -> Unit
 ) {
+    val turnNumber = hud.turnNumber
+    val isShooting = hud.phase == TurnPhase.SHOOTING
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -799,9 +810,22 @@ private fun GamePauseOverlay(
     onStages: () -> Unit,
     onHome: () -> Unit
 ) {
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val cardScale by animateFloatAsState(
+        targetValue = if (entered) 1f else 0.88f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "pause_scale"
+    )
+    val cardAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(160),
+        label = "pause_alpha"
+    )
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer { alpha = cardAlpha }
             .background(Color.Black.copy(alpha = 0.72f))
             .clickable(enabled = false) {},
         contentAlignment = Alignment.Center
@@ -814,6 +838,10 @@ private fun GamePauseOverlay(
                 .fillMaxWidth()
                 .widthIn(max = 360.dp)
                 .padding(horizontal = 24.dp)
+                .graphicsLayer {
+                    scaleX = cardScale
+                    scaleY = cardScale
+                }
         ) {
             Column(
                 modifier = Modifier.padding(22.dp),
@@ -957,9 +985,29 @@ private fun StageClearOverlay(
     onReplay: () -> Unit,
     onStages: () -> Unit
 ) {
+    var entered by remember { mutableStateOf(false) }
+    var revealedStars by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        entered = true
+        for (s in 1..stars) {
+            delay(130L)
+            revealedStars = s
+        }
+    }
+    val cardScale by animateFloatAsState(
+        targetValue = if (entered) 1f else 0.86f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "clear_scale"
+    )
+    val cardAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(180),
+        label = "clear_alpha"
+    )
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer { alpha = cardAlpha }
             .background(Color.Black.copy(alpha = 0.76f)),
         contentAlignment = Alignment.Center
     ) {
@@ -971,6 +1019,10 @@ private fun StageClearOverlay(
                 .fillMaxWidth()
                 .widthIn(max = 360.dp)
                 .padding(horizontal = 24.dp)
+                .graphicsLayer {
+                    scaleX = cardScale
+                    scaleY = cardScale
+                }
         ) {
             Column(
                 modifier = Modifier.padding(24.dp),
@@ -992,7 +1044,15 @@ private fun StageClearOverlay(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     for (i in 1..3) {
-                        val earned = i <= stars
+                        val earned = i <= revealedStars
+                        val starScale by animateFloatAsState(
+                            targetValue = if (earned) 1f else 0.75f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "clear_star_$i"
+                        )
                         Icon(
                             imageVector = Icons.Filled.Star,
                             contentDescription = null,
@@ -1000,6 +1060,10 @@ private fun StageClearOverlay(
                             modifier = Modifier
                                 .size(if (i == 2) 56.dp else 44.dp)
                                 .offset(y = if (i == 2) (-6).dp else 0.dp)
+                                .graphicsLayer {
+                                    scaleX = starScale
+                                    scaleY = starScale
+                                }
                         )
                     }
                 }
@@ -1097,9 +1161,22 @@ private fun GameOverOverlay(
     onStages: () -> Unit,
     onHome: () -> Unit
 ) {
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val cardScale by animateFloatAsState(
+        targetValue = if (entered) 1f else 0.88f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "gameover_scale"
+    )
+    val cardAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(180),
+        label = "gameover_alpha"
+    )
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer { alpha = cardAlpha }
             .background(Color.Black.copy(alpha = 0.78f)),
         contentAlignment = Alignment.Center
     ) {
@@ -1111,6 +1188,10 @@ private fun GameOverOverlay(
                 .fillMaxWidth()
                 .widthIn(max = 360.dp)
                 .padding(horizontal = 24.dp)
+                .graphicsLayer {
+                    scaleX = cardScale
+                    scaleY = cardScale
+                }
         ) {
             Column(
                 modifier = Modifier.padding(24.dp),

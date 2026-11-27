@@ -1,6 +1,6 @@
 {
   "name": "Brick Breaker Quest",
-  "description": "Brick Breaker Quest — Vibrant neon arcade brick-breaking puzzle game with 30 hand-crafted stages, laser beams, power-ups, ball skins, and endless survival mode.",
+  "description": "Brick Breaker Quest — Vibrant neon brick-breaking puzzle game with 1,500 stages, laser beams, power-ups, ball skins, and endless survival mode.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -22,15 +22,7 @@ val InterFontFamily = FontFamily(
     Font(R.font.inter, FontWeight.Bold),
 )
 
-val TabularNumberStyle = TextStyle(
-    fontFamily = PoppinsFontFamily,
-    fontWeight = FontWeight.Bold,
-    fontSize = 30.sp,
-    lineHeight = 36.sp,
-    fontFeatureSettings = "tnum"
-)
-
-val MindfeudTypography = Typography(
+val BrickQuestTypography = Typography(
     displayLarge = TextStyle(
         fontFamily = PoppinsFontFamily,
         fontWeight = FontWeight.Bold,

@@ -37,8 +37,9 @@ class SoundHapticManager(context: Context) {
         )
         .build()
 
+    // Lock-free loaded flags indexed by SoundPool sampleId (avoids HashSet allocation & boxing)
     @Volatile
-    private var loaded = HashSet<Int>()
+    private var loadedMask: Long = 0L
 
     private val sfxTap: Int
     private val sfxHit: Int
@@ -48,17 +49,19 @@ class SoundHapticManager(context: Context) {
     private val sfxLose: Int
 
     private data class HapticEvent(val durationMs: Long, val amplitude: Int)
+    private data class SoundEvent(val soundId: Int, val volume: Float, val rate: Float)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val hapticChannel = Channel<HapticEvent>(capacity = Channel.CONFLATED)
+    private val soundChannel = Channel<SoundEvent>(capacity = 12, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
 
     @Volatile
     private var cachedVibrator: Vibrator? = null
 
     init {
         soundPool.setOnLoadCompleteListener { _, sampleId, status ->
-            if (status == 0) {
-                loaded = HashSet(loaded).apply { add(sampleId) }
+            if (status == 0 && sampleId in 1..62) {
+                loadedMask = loadedMask or (1L shl sampleId)
             }
         }
         sfxTap = soundPool.load(appContext, R.raw.sfx_tap, 1)
@@ -67,6 +70,16 @@ class SoundHapticManager(context: Context) {
         sfxPower = soundPool.load(appContext, R.raw.sfx_power, 1)
         sfxWin = soundPool.load(appContext, R.raw.sfx_win, 1)
         sfxLose = soundPool.load(appContext, R.raw.sfx_lose, 1)
+
+        // Run SoundPool IPC completely off the 60/120fps render thread
+        scope.launch {
+            for (ev in soundChannel) {
+                try {
+                    soundPool.play(ev.soundId, ev.volume, ev.volume, 1, 0, ev.rate)
+                } catch (_: Throwable) {
+                }
+            }
+        }
 
         scope.launch {
             cachedVibrator = resolveVibrator()
@@ -77,8 +90,9 @@ class SoundHapticManager(context: Context) {
     }
 
     private fun play(soundId: Int, volume: Float, rate: Float = 1f) {
-        if (soundId == 0 || soundId !in loaded) return
-        runCatching { soundPool.play(soundId, volume, volume, 1, 0, rate) }
+        if (soundId !in 1..62) return
+        if ((loadedMask and (1L shl soundId)) == 0L) return
+        soundChannel.trySend(SoundEvent(soundId, volume, rate))
     }
 
     private fun haptic(enabled: Boolean, durationMs: Long, amplitude: Int) {
@@ -113,9 +127,6 @@ class SoundHapticManager(context: Context) {
         haptic(hapticsEnabled, 40L, 85)
     }
 
-    /** Kept for compatibility: same as [playBreak]. */
-    fun playCountdownTick(soundEnabled: Boolean, hapticsEnabled: Boolean) = playBreak(soundEnabled, hapticsEnabled)
-
     fun playWinFanfare(soundEnabled: Boolean, hapticsEnabled: Boolean) {
         if (soundEnabled) play(sfxWin, 0.85f)
         haptic(hapticsEnabled, 48L, 130)
@@ -146,6 +157,7 @@ class SoundHapticManager(context: Context) {
     }
 
     fun release() {
+        soundChannel.close()
         hapticChannel.close()
         scope.cancel()
         runCatching { soundPool.release() }

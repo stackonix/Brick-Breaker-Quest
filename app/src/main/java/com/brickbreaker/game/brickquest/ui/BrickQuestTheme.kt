@@ -8,10 +8,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.brickbreaker.game.ui.theme.MindfeudTypography
+import com.brickbreaker.game.ui.theme.BrickQuestTypography
 
 /**
- * Centralized neon cosmic arcade palette matching Bricks Breaker Quest.
+ * Centralized neon cosmic palette for Brick Breaker Quest.
  */
 object BrickQuestColors {
     val CosmicTop = Color(0xFF0A1D2C)
@@ -25,10 +25,7 @@ object BrickQuestColors {
     val NeonCyan = Color(0xFF38BDF8)
     val NeonCyanBright = Color(0xFF7DD3FC)
     val NeonMagenta = Color(0xFFE879F9)
-    val NeonViolet = Color(0xFFA855F7)
-    val NeonGreen = Color(0xFF4ADE80)
     val NeonGold = Color(0xFFFACC15)
-    val NeonOrange = Color(0xFFFF7A1A)
     val CrimsonGlow = Color(0xFFE11D48)
     val CrimsonDeep = Color(0xFF881337)
     val CrimsonBorder = Color(0xFFFF4D6D)
@@ -39,10 +36,6 @@ object BrickQuestColors {
 
     val CosmicBackdropBrush: Brush = Brush.verticalGradient(
         colors = listOf(CosmicTop, CosmicMid, CosmicMid, CosmicBottom)
-    )
-
-    val ArenaBorderBrush: Brush = Brush.verticalGradient(
-        colors = listOf(NeonCyan, NeonViolet, NeonMagenta)
     )
 
     val PlayButtonBrush: Brush = Brush.horizontalGradient(
@@ -90,7 +83,7 @@ private val BrickQuestShapes = Shapes(
 fun BrickQuestTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = BrickQuestColorScheme,
-        typography = MindfeudTypography,
+        typography = BrickQuestTypography,
         shapes = BrickQuestShapes,
         content = content
     )

@@ -1,51 +1,27 @@
 package com.brickbreaker.game.brickquest.ui
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Vibration
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -53,23 +29,18 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brickbreaker.game.R
 import com.brickbreaker.game.brickquest.data.BallSkin
-import com.brickbreaker.game.brickquest.data.BrickQuestProgress
-import com.brickbreaker.game.brickquest.data.TOTAL_QUEST_STAGES
-import com.brickbreaker.game.brickquest.engine.StageWorlds
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -92,9 +63,7 @@ private val MINT_OUTER = Color(0x4006B6D4)
 private val MINT_MID = Color(0x8534D399)
 private val MINT_RING = Color(0xFF6EE7B7)
 
-
-
-private val HomeCenterLegibilityScrim = Brush.verticalGradient(
+private val SplashScrim = Brush.verticalGradient(
     0.0f to Color(0x3805081E),
     0.20f to Color(0x28060B28),
     0.50f to Color(0x48070B2A),
@@ -103,13 +72,7 @@ private val HomeCenterLegibilityScrim = Brush.verticalGradient(
 )
 
 /**
- * Splash screen, shared title and the ball-skin renderer.
- * The home screen itself lives in HomeQuestScreen.kt.
- */
-
-/**
- * Ultra-fast ZERO-ALLOCATION Canvas renderer for all ball skins
- * (replaces expensive per-ball RadialGradient shader allocations with concentric neon halos).
+ * Splash screen, title emblem, and shared zero-allocation ball-skin preview renderer.
  */
 fun DrawScope.drawBallSkinGraphic(
     skin: BallSkin,
@@ -151,7 +114,6 @@ fun DrawScope.drawBallSkinGraphic(
         }
 
         else -> {
-            // Generic glow look for the newer skins (colors come from BallSkin)
             val glow = Color(skin.glowArgb)
             drawCircle(color = glow.copy(alpha = 0.27f), radius = radius * 1.95f, center = center)
             drawCircle(color = glow.copy(alpha = 0.53f), radius = radius * 1.38f, center = center)
@@ -183,12 +145,25 @@ private fun fillStarPath(
 
 @Composable
 fun BrickQuestSplashScreen() {
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val titleScale by animateFloatAsState(
+        targetValue = if (entered) 1f else 0.84f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "splash_scale"
+    )
+    val titleAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(240),
+        label = "splash_alpha"
+    )
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Image(
-            painter = painterResource(id = R.drawable.img_home_arcade_bg),
+            painter = painterResource(id = R.drawable.img_home_neon_bg),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
@@ -196,21 +171,26 @@ fun BrickQuestSplashScreen() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(HomeCenterLegibilityScrim)
+                .background(SplashScrim)
         )
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing),
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .graphicsLayer {
+                    scaleX = titleScale
+                    scaleY = titleScale
+                    alpha = titleAlpha
+                },
             contentAlignment = Alignment.Center
         ) {
-            ArcadeGameTitle(showStageTag = false)
+            QuestGameTitle()
         }
     }
 }
 
 @Composable
-private fun ArcadeGameTitle(showStageTag: Boolean) {
+private fun QuestGameTitle() {
     val brickText = buildAnnotatedString {
         withStyle(SpanStyle(color = Color(0xFFFF4D2D))) { append("B") }
         withStyle(SpanStyle(color = Color(0xFFFFC928))) { append("R") }
@@ -251,24 +231,5 @@ private fun ArcadeGameTitle(showStageTag: Boolean) {
             color = Color(0xFF5CEBFF),
             textAlign = TextAlign.Center
         )
-
-        if (showStageTag) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = Color(0xB0090E2E),
-                border = BorderStroke(1.2.dp, Color(0x9938BDF8))
-            ) {
-                Text(
-                    text = "QUEST  •  ARCADE EDITION",
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 2.sp
-                    ),
-                    color = Color(0xFFE0F2FE),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
-                )
-            }
-        }
     }
 }

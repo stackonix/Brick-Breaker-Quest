@@ -85,10 +85,33 @@ private class NativeRenderCache {
     var brickCornerPx = 10f
     var hpTextSize = 24f
 
-    // Cached static arena backdrop + neon outer frame bitmap (arena-sized, not full screen)
-    var arenaFrameBitmap: Bitmap? = null
-    var arenaFrameLeft: Float = 0f
-    var arenaFrameTop: Float = 0f
+    // Pre-cached GPU vector paints & shaders for the arena frame (rebuilt ONLY on resize, ZERO 7MB bitmap overdraw!)
+    var arenaCornerPx = 14f
+    var dangerY = 0f
+
+    val arenaBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF040814.toInt()
+    }
+    val dangerZonePaint = Paint().apply {
+        style = Paint.Style.FILL
+    }
+    val dangerGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0x48FF3B3B
+        strokeCap = Paint.Cap.ROUND
+    }
+    val dangerDashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xF2FF4D4D.toInt()
+        strokeCap = Paint.Cap.ROUND
+    }
+    val borderGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
+    val borderCrispPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
 
     // Cached pre-rendered ball sprite bitmap (rebuilt ONLY if skin or ball radius changes)
     var ballSpriteBitmap: Bitmap? = null
@@ -119,6 +142,15 @@ private class NativeRenderCache {
         color = android.graphics.Color.WHITE
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    // Dedicated paint for 3-digit HP so brickHpPaint.textSize is NEVER mutated mid-loop
+    val brickHpSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    val trailDotPaint = Paint().apply {
+        style = Paint.Style.FILL
     }
 
     val pickupFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -166,7 +198,8 @@ private class NativeRenderCache {
             lastW = iw
             lastH = ih
             metrics = calculateArenaMetrics(width, height)
-            val cs = metrics.cellSize
+            val m = metrics
+            val cs = m.cellSize
             brickCornerPx = cs * 0.16f
             brickStrokePaint.strokeWidth = (cs * 0.062f).coerceAtLeast(2.2f)
             bombBadgePaint.strokeWidth = 2.0f * density
@@ -174,91 +207,40 @@ private class NativeRenderCache {
             particleStrokePaint.strokeWidth = 1.5f * density
             hpTextSize = (cs * 0.40f).coerceIn(18f, 44f)
             brickHpPaint.textSize = hpTextSize
-            rebuildArenaFrameBitmap(iw, ih, density)
+            brickHpSmallPaint.textSize = hpTextSize * 0.78f
+            rebuildArenaFrameShaders(density)
         }
         return metrics
     }
 
-    private fun rebuildArenaFrameBitmap(w: Int, h: Int, density: Float) {
-        arenaFrameBitmap?.recycle()
+    private fun rebuildArenaFrameShaders(density: Float) {
         val m = metrics
-        // Only the arena (+ room for the glow) is baked, so each frame blends far fewer pixels.
-        val pad = (6f * density).coerceAtLeast(4f)
-        val bmpW = (m.arenaWidth + pad * 2f).toInt().coerceIn(1, w)
-        val bmpH = (m.arenaHeight + pad * 2f).toInt().coerceIn(1, h)
-        arenaFrameLeft = m.offsetX - pad
-        arenaFrameTop = m.offsetY - pad
-        val bmp = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
-        val c = AndroidCanvas(bmp)
-        c.translate(-arenaFrameLeft, -arenaFrameTop)
-        val ox = m.offsetX
         val oy = m.offsetY
-        val aw = m.arenaWidth
         val ah = m.arenaHeight
-        val corner = 14f * density
+        arenaCornerPx = 14f * density
+        dangerY = oy + dangerRowFor(m.rows) * m.cellH
 
-        // 1. Arena inner backdrop
-        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = 0xB8040814.toInt()
-        }
-        c.drawRoundRect(ox, oy, ox + aw, oy + ah, corner, corner, bgPaint)
+        dangerZonePaint.shader = LinearGradient(
+            0f, dangerY, 0f, oy + ah,
+            intArrayOf(0x2EEF4444, 0x06EF4444),
+            null,
+            Shader.TileMode.CLAMP
+        )
+        dangerGlowPaint.strokeWidth = 7f * density
+        dangerDashPaint.strokeWidth = 2.2f * density
+        dangerDashPaint.pathEffect = DashPathEffect(floatArrayOf(14f * density, 8f * density), 0f)
 
-        // 2. Danger zone + glowing danger line, ~2 rows above the floor (moves with the arena)
-        val dangerY = oy + dangerRowFor(m.rows) * m.cellH
-        val zonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            shader = LinearGradient(
-                0f, dangerY, 0f, oy + ah,
-                intArrayOf(0x2EEF4444, 0x0AEF4444),
-                null,
-                Shader.TileMode.CLAMP
-            )
-        }
-        c.save()
-        c.clipRect(ox, dangerY, ox + aw, oy + ah)
-        c.drawRoundRect(ox, oy, ox + aw, oy + ah, corner, corner, zonePaint)
-        c.restore()
-        val dangerGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            color = 0x55FF3B3B
-            strokeWidth = 7f * density
-            strokeCap = Paint.Cap.ROUND
-            maskFilter = android.graphics.BlurMaskFilter(4f * density, android.graphics.BlurMaskFilter.Blur.NORMAL)
-        }
-        c.drawLine(ox + 10f, dangerY, ox + aw - 10f, dangerY, dangerGlowPaint)
-        val dangerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            color = 0xF2FF4D4D.toInt()
-            strokeWidth = 2.2f * density
-            strokeCap = Paint.Cap.ROUND
-            pathEffect = DashPathEffect(floatArrayOf(14f * density, 8f * density), 0f)
-        }
-        c.drawLine(ox + 10f, dangerY, ox + aw - 10f, dangerY, dangerPaint)
-
-        // 3. Outer glowing neon cyan -> violet -> magenta frame (baked ONCE!)
-        val gradient = LinearGradient(
+        val borderGradient = LinearGradient(
             0f, oy, 0f, oy + ah,
             intArrayOf(0xFF38BDF8.toInt(), 0xFFA855F7.toInt(), 0xFFE879F9.toInt()),
             null,
             Shader.TileMode.CLAMP
         )
-        val glowBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            shader = gradient
-            strokeWidth = 7.5f * density
-            alpha = 68
-        }
-        c.drawRoundRect(ox, oy, ox + aw, oy + ah, corner, corner, glowBorderPaint)
-
-        val crispBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            shader = gradient
-            strokeWidth = 2.2f * density
-        }
-        c.drawRoundRect(ox, oy, ox + aw, oy + ah, corner, corner, crispBorderPaint)
-
-        arenaFrameBitmap = bmp
+        borderGlowPaint.shader = borderGradient
+        borderGlowPaint.strokeWidth = 7.5f * density
+        borderGlowPaint.alpha = 68
+        borderCrispPaint.shader = borderGradient
+        borderCrispPaint.strokeWidth = 2.2f * density
     }
 
     fun ensureBallSprite(skin: BallSkin, ballRadiusPx: Float): Bitmap {
@@ -386,13 +368,16 @@ private class NativeRenderCache {
 }
 
 fun calculateArenaMetrics(width: Float, height: Float): ArenaMetrics {
-    // Small margins so the arena uses (almost) the full screen width on phones.
+    // Small horizontal & top margins so the arena uses (almost) the full screen width on phones.
     val marginX = width * 0.012f
-    val marginY = height * 0.01f
+    val topMargin = height * 0.008f
+    // Dedicated empty thumb-drag gap below the bottom neon border so the user can slide
+    // their finger cleanly underneath without hiding the glowing cyan paddle bar.
+    val bottomDragGap = (height * 0.115f).coerceIn(width * 0.145f, width * 0.22f)
     val availW = (width - marginX * 2f).coerceAtLeast(1f)
-    val availH = (height - marginY * 2f).coerceAtLeast(1f)
+    val availH = (height - topMargin - bottomDragGap).coerceAtLeast(1f)
     // Square cells using the full width; tall screens get extra rows (12 up to MAX_ARENA_ROWS)
-    // so the arena fills the height. Wide screens / tablets: 12 rows, height decides the size.
+    // so the arena fills the height cleanly above the thumb-drag gap.
     val cellW = min(availW / ARENA_COLS, availH / ARENA_ROWS)
     val cellH = cellW
     val rows = (availH / cellH).coerceIn(ARENA_ROWS.toFloat(), MAX_ARENA_ROWS)
@@ -400,7 +385,7 @@ fun calculateArenaMetrics(width: Float, height: Float): ArenaMetrics {
     val arenaH = cellH * rows
     return ArenaMetrics(
         offsetX = (width - arenaW) / 2f,
-        offsetY = (height - arenaH) / 2f,
+        offsetY = topMargin + (availH - arenaH) * 0.5f,
         cellSize = cellW,
         arenaWidth = arenaW,
         arenaHeight = arenaH,
@@ -504,6 +489,16 @@ class GameEngine(
         frameTick.longValue++
     }
 
+    private fun cachedMetricsForTouch(canvasWidth: Float, canvasHeight: Float): ArenaMetrics {
+        val iw = canvasWidth.toInt().coerceAtLeast(1)
+        val ih = canvasHeight.toInt().coerceAtLeast(1)
+        return if (renderCache.lastW == iw && renderCache.lastH == ih) {
+            renderCache.metrics
+        } else {
+            calculateArenaMetrics(canvasWidth, canvasHeight)
+        }
+    }
+
     fun updateAimFromCanvasPoint(
         posX: Float,
         posY: Float,
@@ -511,7 +506,7 @@ class GameEngine(
         canvasHeight: Float
     ) {
         if (canvasWidth <= 1f || canvasHeight <= 1f) return
-        val m = calculateArenaMetrics(canvasWidth, canvasHeight)
+        val m = cachedMetricsForTouch(canvasWidth, canvasHeight)
         val normX = (posX - m.offsetX) / m.cellW
         val normY = (posY - m.offsetY) / m.cellH
         simulation.updateAimFromPointer(normX, normY)
@@ -524,7 +519,7 @@ class GameEngine(
         canvasHeight: Float
     ) {
         if (canvasWidth <= 1f || canvasHeight <= 1f) return
-        val m = calculateArenaMetrics(canvasWidth, canvasHeight)
+        val m = cachedMetricsForTouch(canvasWidth, canvasHeight)
         val normX = (posX - m.offsetX) / m.cellW
         simulation.updatePaddlePosition(normX)
         frameTick.longValue++
@@ -582,32 +577,41 @@ class GameEngine(
         drawIntoCanvas { composeCanvas ->
             val nc = composeCanvas.nativeCanvas
 
-            // 1. Pre-baked Arena Backdrop + Danger Dashed Line + Neon Outer Border (1 single blit!)
-            cache.arenaFrameBitmap?.let { frameBmp ->
-                nc.drawBitmap(frameBmp, cache.arenaFrameLeft, cache.arenaFrameTop, null)
-            }
+            // 1. Hardware-Accelerated Vector Arena Backdrop + Danger Line + Neon Border
+            // (0 MB texture memory & ZERO full-screen 7MB bitmap alpha-blending per frame!)
+            val arenaCorner = cache.arenaCornerPx
+            val dangerY = cache.dangerY
+            nc.drawRoundRect(ox, oy, ox + aw, oy + ah, arenaCorner, arenaCorner, cache.arenaBgPaint)
+            nc.drawRect(ox + 2f, dangerY, ox + aw - 2f, oy + ah - arenaCorner * 0.5f, cache.dangerZonePaint)
+            nc.drawLine(ox + 10f, dangerY, ox + aw - 10f, dangerY, cache.dangerGlowPaint)
+            nc.drawLine(ox + 10f, dangerY, ox + aw - 10f, dangerY, cache.dangerDashPaint)
+            nc.drawRoundRect(ox, oy, ox + aw, oy + ah, arenaCorner, arenaCorner, cache.borderGlowPaint)
+            nc.drawRoundRect(ox, oy, ox + aw, oy + ah, arenaCorner, arenaCorner, cache.borderCrispPaint)
 
-            // 2. Glowing Neon Bricks + Cached HP Text
+            // 2. Glowing Neon Bricks + Smooth Hit-Pop + Dual Pre-Sized HP Text Paints
             val brickFillPaint = cache.brickFillPaint
             val brickStrokePaint = cache.brickStrokePaint
             val brickHighlightPaint = cache.brickHighlightPaint
             val bombBadgePaint = cache.bombBadgePaint
             val brickHpPaint = cache.brickHpPaint
+            val brickHpSmallPaint = cache.brickHpSmallPaint
             val corner = cache.brickCornerPx
             val baseHpTextSize = cache.hpTextSize
+            val smallHpTextSize = baseHpTextSize * 0.78f
             val bricks = simulation.bricks
 
             for (i in 0 until bricks.size) {
                 val brick = bricks[i]
                 val baseRgb = BrickQuestEngine.brickRgbForHp(brick.hp, brick.special)
-                val left = ox + brick.left * cw
-                val top = oy + brick.top * ch
-                val right = ox + brick.right * cw
-                val bottom = oy + brick.bottom * ch
+                val pop = brick.hitFlash * cs * 0.036f
+                val left = ox + brick.left * cw - pop
+                val top = oy + brick.top * ch - pop
+                val right = ox + brick.right * cw + pop
+                val bottom = oy + brick.bottom * ch + pop
                 val bw = right - left
                 val bh = bottom - top
 
-                val fillAlpha = ((0.28f + brick.hitFlash * 0.42f).coerceIn(0f, 1f) * 255f).toInt()
+                val fillAlpha = ((0.28f + brick.hitFlash * 0.44f).coerceIn(0f, 1f) * 255f).toInt()
                 brickFillPaint.color = (fillAlpha shl 24) or baseRgb
                 nc.drawRoundRect(left, top, right, bottom, corner, corner, brickFillPaint)
 
@@ -625,7 +629,6 @@ class GameEngine(
                 if (brick.special == BrickSpecial.BOMB_3X3) {
                     nc.drawCircle(left + bw * 0.5f, top + bh * 0.5f, bw * 0.36f, bombBadgePaint)
                 } else if (brick.special != BrickSpecial.NONE) {
-                    // Distinct neon corner icon on special power-up bricks
                     val badgeLabel = when (brick.special) {
                         BrickSpecial.POWER_MULTI_BALL -> "×2"
                         BrickSpecial.POWER_LASER_BEAM -> "⚡"
@@ -637,14 +640,15 @@ class GameEngine(
                     nc.drawText(badgeLabel, right - bw * 0.22f, top + bh * 0.31f, cache.badgePaint)
                 }
 
-                // 3-digit HP gets a smaller font so it always fits inside the brick
-                val hpSize = if (brick.hp >= 100) baseHpTextSize * 0.78f else baseHpTextSize
-                if (brickHpPaint.textSize != hpSize) brickHpPaint.textSize = hpSize
+                // Dual pre-sized paints prevent Skia textSize glyph-cache flushes mid-loop
+                val isThreeDigit = brick.hp >= 100
+                val hpPaint = if (isThreeDigit) brickHpSmallPaint else brickHpPaint
+                val hpSize = if (isThreeDigit) smallHpTextSize else baseHpTextSize
                 nc.drawText(
                     hpString(brick.hp),
                     left + bw * 0.5f,
                     top + bh * 0.5f + hpSize * 0.36f,
-                    brickHpPaint
+                    hpPaint
                 )
             }
 
@@ -880,26 +884,93 @@ class GameEngine(
                     nc.drawCircle(px - pHalfW * 0.72f, py - pHalfH, tipR * 0.52f, pf)
                     nc.drawCircle(px + pHalfW * 0.72f, py - pHalfH, tipR * 0.52f, pf)
                 }
+
+                // 7b. Subtle Thumb-Drag Track inside the dedicated empty gap below the arena border
+                // Keeps the paddle bar 100% visible above the user's finger while dragging.
+                val gapTop = oy + ah
+                val gapH = size.height - gapTop
+                if (gapH >= 24f * density) {
+                    val trackY = gapTop + gapH * 0.52f
+                    val trackPadX = 16f * density
+                    val trackLeft = ox + trackPadX
+                    val trackRight = ox + aw - trackPadX
+                    val trackHalfH = 2.5f * density
+                    // Faint horizontal slide rail
+                    pf.color = 0x2238BDF8
+                    nc.drawRoundRect(
+                        trackLeft,
+                        trackY - trackHalfH,
+                        trackRight,
+                        trackY + trackHalfH,
+                        trackHalfH,
+                        trackHalfH,
+                        pf
+                    )
+                    // Minimal synced thumb indicator pill directly beneath the cyan paddle
+                    val handleHalfW = (pHalfW * 0.44f).coerceIn(22f * density, 54f * density)
+                    val handleHalfH = 5.5f * density
+                    val hx = px.coerceIn(trackLeft + handleHalfW, trackRight - handleHalfW)
+                    pf.color = (0x28 shl 24) or paddleRgb
+                    nc.drawRoundRect(
+                        hx - handleHalfW - 4f * density,
+                        trackY - handleHalfH - 3f * density,
+                        hx + handleHalfW + 4f * density,
+                        trackY + handleHalfH + 3f * density,
+                        handleHalfH + 3f * density,
+                        handleHalfH + 3f * density,
+                        pf
+                    )
+                    pf.color = (0x66 shl 24) or paddleRgb
+                    nc.drawRoundRect(
+                        hx - handleHalfW,
+                        trackY - handleHalfH,
+                        hx + handleHalfW,
+                        trackY + handleHalfH,
+                        handleHalfH,
+                        handleHalfH,
+                        pf
+                    )
+                    ps.strokeWidth = 1.1f * density
+                    ps.color = 0x80E0F2FE.toInt()
+                    nc.drawRoundRect(
+                        hx - handleHalfW,
+                        trackY - handleHalfH,
+                        hx + handleHalfW,
+                        trackY + handleHalfH,
+                        handleHalfH,
+                        handleHalfH,
+                        ps
+                    )
+                }
             }
 
-            // 8. Flying Balls with Silky Glowing Comet Trails & Floor Launch Anchor
+            // 8. Flying Balls with Adaptive Low-Overdraw Glowing Comet Trails & Floor Launch Anchor
             val balls = simulation.balls
             val bmpPaint = cache.bitmapPaint
-            val trailPaint = cache.aimDotPaint
+            val trailPaint = cache.trailDotPaint
             val trailRgb = (skin.glowArgb and 0x00FFFFFFL).toInt()
+            var activeBallCount = 0
+            for (i in 0 until balls.size) {
+                if (balls[i].active) activeBallCount++
+            }
+            val maxTrailDots = when {
+                activeBallCount <= 22 -> 3
+                activeBallCount <= 42 -> 2
+                else -> 1
+            }
             for (i in 0 until balls.size) {
                 val ball = balls[i]
                 if (!ball.active) continue
-                val tc = ball.trailCount
+                val tc = min(ball.trailCount, maxTrailDots)
                 if (tc > 0 && !ball.gathering) {
                     for (t in tc - 1 downTo 0) {
                         val frac = 1f - (t + 1) / (tc + 1f)
-                        val alpha = (frac * frac * 115f).toInt().coerceIn(8, 120)
+                        val alpha = (frac * frac * 112f).toInt().coerceIn(10, 118)
                         trailPaint.color = (alpha shl 24) or trailRgb
                         nc.drawCircle(
                             ox + ball.trailX[t] * cw,
                             oy + ball.trailY[t] * ch,
-                            ballRadiusPx * (0.45f + frac * 0.52f),
+                            ballRadiusPx * (0.44f + frac * 0.48f),
                             trailPaint
                         )
                     }
@@ -950,19 +1021,17 @@ class GameEngine(
     }
 
     companion object {
-        // Longer gaps (app resumed, huge hitch) are capped so balls don't teleport through bricks.
-        private const val MAX_FRAME_DT_SEC = 0.1f
-        // Largest dt one simulation update may take (matches the old 60 FPS behaviour).
+        // Capped tightly so a single OS hiccup never triggers a multi-step catch-up spiral.
+        private const val MAX_FRAME_DT_SEC = 0.05f
+        // Largest dt one simulation update may take (keeps collision stepping crisp at any Hz).
         private const val MAX_SIM_STEP_SEC = 1f / 60f
-        private const val MAX_SIM_STEPS_PER_FRAME = 6
-        private const val AUDIO_THROTTLE_MS = 95L
+        private const val MAX_SIM_STEPS_PER_FRAME = 3
+        private const val AUDIO_THROTTLE_MS = 90L
     }
 }
 
 /**
- * Core 60 FPS game loop driven by Compose [LaunchedEffect] and [withFrameNanos].
- * Steps [engine] in lockstep with VSync and triggers [onFrameSynced] with the frame timestamp
- * so HUD updates can be smoothly throttled without per-frame UI recompositions.
+ * Core 60/120 FPS VSync game loop driven by Compose [LaunchedEffect] and [withFrameNanos].
  */
 @Composable
 fun GameEngineLoop(
@@ -971,7 +1040,6 @@ fun GameEngineLoop(
     onAudioCue: (GameAudioCue) -> Unit,
     onFrameSynced: (frameTimeMillis: Long) -> Unit
 ) {
-    // Always call the latest callbacks (e.g. after sound is toggled) without restarting the loop.
     val latestAudioCue by rememberUpdatedState(onAudioCue)
     val latestFrameSynced by rememberUpdatedState(onFrameSynced)
     LaunchedEffect(engine, isPaused) {
@@ -1046,7 +1114,11 @@ fun BrickBreakerCanvas(
                                 change.consume()
                             }
                         }
-                    } else if (engine.phase == TurnPhase.SHOOTING || engine.phase == TurnPhase.DROPPING) {
+                    } else if (
+                        engine.phase == TurnPhase.SHOOTING ||
+                        engine.phase == TurnPhase.DROPPING ||
+                        engine.phase == TurnPhase.CLEARING
+                    ) {
                         // Slide the compulsory glowing neon paddle smoothly to bounce balls & catch power-ups!
                         engine.movePaddleFromCanvasPoint(
                             posX = down.position.x,

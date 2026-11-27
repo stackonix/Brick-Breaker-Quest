@@ -51,7 +51,6 @@ data class BrickQuestProgress(
     val hapticsEnabled: Boolean = true
 ) {
     val totalStars: Int get() = stageStars.values.sum()
-    val maxStars: Int get() = TOTAL_QUEST_STAGES * 3
 
     fun starsFor(stage: Int): Int = stageStars[stage] ?: 0
     fun isStageUnlocked(stage: Int): Boolean = stage in 1..highestUnlockedStage

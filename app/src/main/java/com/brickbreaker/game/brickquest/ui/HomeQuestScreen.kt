@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -130,6 +129,7 @@ private val HomeScrim = Brush.verticalGradient(
     1.0f to Color(0xF805081E)
 )
 private val PlayBrush = Brush.verticalGradient(listOf(Color(0xFF4F8BFF), Color(0xFF3B5BFF), Color(0xFF5B3BFF)))
+private val TileBrush = Brush.linearGradient(listOf(TileColor, TileColor))
 private val EndlessBrush = Brush.linearGradient(listOf(Color(0xD9F97316), Color(0xD9EC4899)))
 private val CurrentNodeBrush = Brush.verticalGradient(listOf(Color(0xFFF97316), Color(0xFFDB2777)))
 private val BossBrush = Brush.linearGradient(listOf(Color(0xFF7F1D1D), Color(0xFF3B0764)))
@@ -193,7 +193,7 @@ fun BrickQuestHomeScreen(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Image(
-                painter = painterResource(id = R.drawable.img_home_arcade_bg),
+                painter = painterResource(id = R.drawable.img_home_neon_bg),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -606,7 +606,7 @@ private fun HomeBottomPanel(
             HomeTile(
                 label = "World Map",
                 sub = "$TOTAL_QUEST_STAGES stages",
-                background = Brush.linearGradient(listOf(TileColor, TileColor)),
+                background = TileBrush,
                 borderColor = Cyan.copy(alpha = 0.45f),
                 tag = "home_world_map_button",
                 onClick = onWorldMap,
@@ -628,7 +628,7 @@ private fun HomeBottomPanel(
             HomeTile(
                 label = "Skins",
                 sub = progress.selectedSkin.displayName,
-                background = Brush.linearGradient(listOf(TileColor, TileColor)),
+                background = TileBrush,
                 borderColor = Color(0x73E879F9),
                 tag = "home_skins_button",
                 onClick = onSkins,

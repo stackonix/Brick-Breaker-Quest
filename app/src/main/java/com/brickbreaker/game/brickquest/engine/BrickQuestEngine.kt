@@ -162,6 +162,8 @@ class BrickQuestEngine(
 
     private val ballPool = ArrayList<BallEntity>(64)
     private val particlePool = ArrayList<SquareParticle>(MAX_PARTICLES)
+    // O(1) spatial lookup grid: slot = row * ARENA_COLS + col (eliminates O(balls * bricks) scans!)
+    private val brickGrid = arrayOfNulls<BrickEntity>(ARENA_COLS * GRID_MAX_ROWS)
 
     var phase: TurnPhase = TurnPhase.AIMING
         private set
@@ -173,20 +175,15 @@ class BrickQuestEngine(
     var turnNumber: Int = 1
         private set
 
-    /** Stage meta (STAGE mode). */
-    var isBossStage: Boolean = false
-        private set
-    var stagePatternName: String = ""
-        private set
-
     var launchX: Float = ARENA_COLS / 2f
         private set
     var nextLaunchX: Float? = null
         private set
 
-    // Interactive Neon Deflector & Catcher Paddle
+    // Interactive Neon Deflector & Catcher Paddle (exponentially smoothed for silky touch tracking)
     var paddleX: Float = ARENA_COLS / 2f
         private set
+    private var targetPaddleX: Float = ARENA_COLS / 2f
     var paddleWidth: Float = BASE_PADDLE_WIDTH
         private set
     /**
@@ -355,11 +352,10 @@ class BrickQuestEngine(
 
     private fun loadStage(stage: Int) {
         bricks.clear()
+        brickGrid.fill(null)
         pickups.clear()
         val blueprint = StageGenerator.generate(stage)
         totalBalls = blueprint.balls
-        isBossStage = blueprint.isBoss
-        stagePatternName = blueprint.patternName
         for (b in blueprint.bricks) addBrick(b.col, b.row, b.hp, b.special)
         for (p in blueprint.pickups) addPickup(p.col, p.row, p.kind)
 
@@ -397,18 +393,33 @@ class BrickQuestEngine(
         }
     }
 
+    private fun gridIndex(col: Int, row: Int): Int {
+        if (col !in 0 until ARENA_COLS || row !in 0 until GRID_MAX_ROWS) return -1
+        return row * ARENA_COLS + col
+    }
+
+    private fun rebuildBrickGrid() {
+        brickGrid.fill(null)
+        for (i in 0 until bricks.size) {
+            val b = bricks[i]
+            val slot = gridIndex(b.col, b.row)
+            if (slot >= 0) brickGrid[slot] = b
+        }
+    }
+
     private fun addBrick(col: Int, row: Int, hp: Int, special: BrickSpecial = BrickSpecial.NONE) {
-        if (bricks.any { it.col == col && it.row == row }) return
-        bricks.add(
-            BrickEntity(
-                id = nextEntityId++,
-                col = col,
-                row = row,
-                hp = hp.coerceAtLeast(1),
-                maxHp = hp.coerceAtLeast(1),
-                special = special
-            )
+        val slot = gridIndex(col, row)
+        if (slot >= 0 && brickGrid[slot] != null) return
+        val entity = BrickEntity(
+            id = nextEntityId++,
+            col = col,
+            row = row,
+            hp = hp.coerceAtLeast(1),
+            maxHp = hp.coerceAtLeast(1),
+            special = special
         )
+        bricks.add(entity)
+        if (slot >= 0) brickGrid[slot] = entity
     }
 
     private fun addPickup(col: Int, row: Int, kind: PickupKind) {
@@ -475,13 +486,9 @@ class BrickQuestEngine(
         aimPreviewDirty = true
     }
 
-    fun cancelAim() {
-        isDraggingAim = false
-    }
-
     fun updatePaddlePosition(normX: Float) {
         val halfW = paddleWidth * 0.5f
-        paddleX = normX.coerceIn(halfW, ARENA_COLS - halfW)
+        targetPaddleX = normX.coerceIn(halfW, ARENA_COLS - halfW)
     }
 
     fun fireVolley() {
@@ -497,7 +504,9 @@ class BrickQuestEngine(
         autoTurboApplied = false
         autoRecallApplied = false
         emptyBoardRecallTriggered = false
-        paddleX = launchX.coerceIn(paddleWidth * 0.5f, ARENA_COLS - paddleWidth * 0.5f)
+        val clampedLaunch = launchX.coerceIn(paddleWidth * 0.5f, ARENA_COLS - paddleWidth * 0.5f)
+        paddleX = clampedLaunch
+        targetPaddleX = clampedLaunch
 
         shotVx = cos(aimAngleRad) * BALL_SPEED
         shotVy = sin(aimAngleRad) * BALL_SPEED
@@ -612,15 +621,22 @@ class BrickQuestEngine(
             }
             if (cy >= floorY) break
 
-            // Brick hit check (indexed loop, zero iterator allocation)
+            // O(1) Brick grid hit check (zero iteration over all bricks!)
             var hitBrick: BrickEntity? = null
-            for (bIdx in 0 until bricks.size) {
-                val b = bricks[bIdx]
-                if (cx + BALL_RADIUS >= b.left && cx - BALL_RADIUS <= b.right &&
-                    cy + BALL_RADIUS >= b.top && cy - BALL_RADIUS <= b.bottom
-                ) {
-                    hitBrick = b
-                    break
+            val minC = (cx - BALL_RADIUS).toInt().coerceIn(0, ARENA_COLS - 1)
+            val maxC = (cx + BALL_RADIUS).toInt().coerceIn(0, ARENA_COLS - 1)
+            val minR = (cy - BALL_RADIUS).toInt().coerceIn(0, GRID_MAX_ROWS - 1)
+            val maxR = (cy + BALL_RADIUS).toInt().coerceIn(0, GRID_MAX_ROWS - 1)
+            outer@ for (r in minR..maxR) {
+                val rowBase = r * ARENA_COLS
+                for (c in minC..maxC) {
+                    val b = brickGrid[rowBase + c] ?: continue
+                    if (cx + BALL_RADIUS >= b.left && cx - BALL_RADIUS <= b.right &&
+                        cy + BALL_RADIUS >= b.top && cy - BALL_RADIUS <= b.bottom
+                    ) {
+                        hitBrick = b
+                        break@outer
+                    }
                 }
             }
             aimPreviewX[count] = cx
@@ -719,9 +735,11 @@ class BrickQuestEngine(
             }
 
             TurnPhase.DROPPING -> {
-                dropAnimRemaining = (dropAnimRemaining - dt * 7.5f).coerceAtLeast(0f)
+                dropAnimRemaining = (dropAnimRemaining - dt * 5.8f).coerceAtLeast(0f)
+                // Silky cubic ease-out settle curve so bricks glide smoothly into place
+                val eased = dropAnimRemaining * dropAnimRemaining * dropAnimRemaining
                 for (i in 0 until bricks.size) {
-                    bricks[i].renderRowOffset = -dropAnimRemaining
+                    bricks[i].renderRowOffset = -eased
                 }
                 if (dropAnimRemaining <= 0f) {
                     var dangerHit = false
@@ -940,35 +958,42 @@ class BrickQuestEngine(
                 }
             }
 
-            // Check Bricks (Circle vs AABB with fast bounding rejection)
+            // O(1) Spatial Grid Brick Collision (checks only the 1–4 cells touching the ball!)
             var collidedBrick: BrickEntity? = null
             var bestOverlap = -1f
             var hitNormalX = 0f
             var hitNormalY = 0f
 
-            for (idx in 0 until bricks.size) {
-                val brick = bricks[idx]
-                // Ultra-fast AABB rejection before clamp
-                if (ball.x + BALL_RADIUS < brick.left || ball.x - BALL_RADIUS > brick.right) continue
-                if (ball.y + BALL_RADIUS < brick.top || ball.y - BALL_RADIUS > brick.bottom) continue
+            val minCol = (ball.x - BALL_RADIUS).toInt().coerceIn(0, ARENA_COLS - 1)
+            val maxCol = (ball.x + BALL_RADIUS).toInt().coerceIn(0, ARENA_COLS - 1)
+            val minRow = (ball.y - BALL_RADIUS).toInt().coerceIn(0, GRID_MAX_ROWS - 1)
+            val maxRow = (ball.y + BALL_RADIUS).toInt().coerceIn(0, GRID_MAX_ROWS - 1)
 
-                val closestX = ball.x.coerceIn(brick.left, brick.right)
-                val closestY = ball.y.coerceIn(brick.top, brick.bottom)
-                val dx = ball.x - closestX
-                val dy = ball.y - closestY
-                val distSq = dx * dx + dy * dy
-                if (distSq < ballRadiusSq) {
-                    val dist = sqrt(distSq)
-                    val overlap = BALL_RADIUS - dist
-                    if (overlap > bestOverlap) {
-                        bestOverlap = overlap
-                        collidedBrick = brick
-                        if (dist > 0.0001f) {
-                            hitNormalX = dx / dist
-                            hitNormalY = dy / dist
-                        } else {
-                            hitNormalX = 0f
-                            hitNormalY = if (ball.vy > 0f) -1f else 1f
+            for (r in minRow..maxRow) {
+                val rowBase = r * ARENA_COLS
+                for (c in minCol..maxCol) {
+                    val brick = brickGrid[rowBase + c] ?: continue
+                    if (ball.x + BALL_RADIUS < brick.left || ball.x - BALL_RADIUS > brick.right) continue
+                    if (ball.y + BALL_RADIUS < brick.top || ball.y - BALL_RADIUS > brick.bottom) continue
+
+                    val closestX = ball.x.coerceIn(brick.left, brick.right)
+                    val closestY = ball.y.coerceIn(brick.top, brick.bottom)
+                    val dx = ball.x - closestX
+                    val dy = ball.y - closestY
+                    val distSq = dx * dx + dy * dy
+                    if (distSq < ballRadiusSq) {
+                        val dist = sqrt(distSq)
+                        val overlap = BALL_RADIUS - dist
+                        if (overlap > bestOverlap) {
+                            bestOverlap = overlap
+                            collidedBrick = brick
+                            if (dist > 0.0001f) {
+                                hitNormalX = dx / dist
+                                hitNormalY = dy / dist
+                            } else {
+                                hitNormalX = 0f
+                                hitNormalY = if (ball.vy > 0f) -1f else 1f
+                            }
                         }
                     }
                 }
@@ -1002,11 +1027,13 @@ class BrickQuestEngine(
     }
 
     private fun updateActivePowerUps(dt: Float) {
-        // Smoothly animate paddle expansion width
+        // Smoothly animate paddle expansion width and silky touch tracking
         val targetWidth = if (paddleExpandTimer > 0f) EXPANDED_PADDLE_WIDTH else BASE_PADDLE_WIDTH
-        paddleWidth += (targetWidth - paddleWidth) * (dt * 9.5f).coerceAtMost(1f)
+        paddleWidth += (targetWidth - paddleWidth) * (dt * 11f).coerceAtMost(1f)
         val halfW = paddleWidth * 0.5f
-        paddleX = paddleX.coerceIn(halfW, ARENA_COLS - halfW)
+        targetPaddleX = targetPaddleX.coerceIn(halfW, ARENA_COLS - halfW)
+        val paddleLerp = (dt * 34f).coerceAtMost(1f)
+        paddleX = (paddleX + (targetPaddleX - paddleX) * paddleLerp).coerceIn(halfW, ARENA_COLS - halfW)
 
         // Move falling collectable power-up capsules & check paddle catch
         val catchHalfW = halfW + 0.38f
@@ -1201,8 +1228,15 @@ class BrickQuestEngine(
 
         if (brick.hp <= 0) {
             brick.destroyed = true
+            val slot = gridIndex(brick.col, brick.row)
+            if (slot >= 0 && brickGrid[slot] === brick) brickGrid[slot] = null
+            // O(1) swap-remove (no ArrayList shifting!)
             val idx = bricks.indexOf(brick)
-            if (idx >= 0) bricks.removeAt(idx)
+            if (idx >= 0) {
+                val last = bricks.size - 1
+                bricks[idx] = bricks[last]
+                bricks.removeAt(last)
+            }
             breakSoundCounter++
             aimPreviewDirty = true
             spawnSquareBurst(brick.col + 0.5f, brick.row + 0.5f, brickRgbForHp(brick.maxHp, brick.special), count = 11)
@@ -1219,10 +1253,20 @@ class BrickQuestEngine(
 
     private fun detonateBomb(centerCol: Int, centerRow: Int) {
         laserSoundCounter++
-        spawnSquareBurst(centerCol + 0.5f, centerRow + 0.5f, 0xFDE047, count = 20)
+        spawnSquareBurst(centerCol + 0.5f, centerRow + 0.5f, 0xFDE047, count = 18)
         floatingTexts.add(FloatingTextFx(x = centerCol + 0.5f, y = centerRow + 0.5f, text = "BOOM!", rgb = 0xFDE047))
-        val neighbors = bricks.filter { b -> abs(b.col - centerCol) <= 1 && abs(b.row - centerRow) <= 1 }
-        for (n in neighbors) damageBrick(n, damage = max(12, n.hp / 2 + 6), fromChain = true)
+        // Collect neighbors via O(1) grid lookup into local list (handles nested bombs safely)
+        val neighbors = ArrayList<BrickEntity>(8)
+        for (r in (centerRow - 1).coerceAtLeast(0)..(centerRow + 1).coerceAtMost(GRID_MAX_ROWS - 1)) {
+            for (c in (centerCol - 1).coerceAtLeast(0)..(centerCol + 1).coerceAtMost(ARENA_COLS - 1)) {
+                val b = brickGrid[r * ARENA_COLS + c]
+                if (b != null && !b.destroyed) neighbors.add(b)
+            }
+        }
+        for (i in 0 until neighbors.size) {
+            val n = neighbors[i]
+            damageBrick(n, damage = max(12, n.hp / 2 + 6), fromChain = true)
+        }
     }
 
     private fun spawnSquareBurst(cx: Float, cy: Float, rgb: Int, count: Int) {
@@ -1281,7 +1325,9 @@ class BrickQuestEngine(
         turboSpeed = false
         launchX = nextLaunchX ?: launchX
         nextLaunchX = null
-        paddleX = launchX.coerceIn(paddleWidth * 0.5f, ARENA_COLS - paddleWidth * 0.5f)
+        val clampedLaunch = launchX.coerceIn(paddleWidth * 0.5f, ARENA_COLS - paddleWidth * 0.5f)
+        paddleX = clampedLaunch
+        targetPaddleX = clampedLaunch
         turnNumber++
 
         // Remove collected +1 ball pickups and triggered laser orbs
@@ -1292,12 +1338,13 @@ class BrickQuestEngine(
             return
         }
 
-        // Advance all surviving bricks & pickups down by 1 row
+        // Advance all surviving bricks & pickups down by 1 row and resync O(1) grid
         for (i in 0 until bricks.size) {
             val b = bricks[i]
             b.row += 1
             b.renderRowOffset = -1f
         }
+        rebuildBrickGrid()
         for (i in 0 until pickups.size) {
             pickups[i].row += 1
         }
@@ -1319,9 +1366,10 @@ class BrickQuestEngine(
         const val LASER_BEAM_DURATION_SEC = 7.0f
         const val PADDLE_EXPAND_DURATION_SEC = 10.0f
         private const val MAX_ACTIVE_BALLS = 80
-        private const val MAX_PARTICLES = 56
+        private const val MAX_PARTICLES = 48
+        private const val GRID_MAX_ROWS = 20
 
-        /** Smooth, readable arcade ball speed in grid cells per second. */
+        /** Smooth, readable ball speed in grid cells per second. */
         const val BALL_SPEED = 9.8f
         private const val RECALL_SPEED = 16.5f
         private const val GATHER_SPEED = 14.0f
