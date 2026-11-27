@@ -309,7 +309,7 @@ fun BrickQuestGameScreen(
                 if (showDragHint) {
                     // Plain Text (not Surface) so dragging can start on top of the hint.
                     Text(
-                        text = "DRAG TO AIM  •  RELEASE TO SHOOT",
+                        text = "DRAG TO AIM  •  SLIDE BAR TO BOUNCE",
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.8.sp

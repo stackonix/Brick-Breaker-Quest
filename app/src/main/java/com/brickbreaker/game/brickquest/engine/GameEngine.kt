@@ -438,6 +438,7 @@ class GameEngine(
     val phase: TurnPhase get() = simulation.phase
     val turboSpeed: Boolean get() = simulation.turboSpeed
     val turnNumber: Int get() = simulation.turnNumber
+    val turnsUntilDanger: Int get() = simulation.turnsUntilDanger
     val isDraggingAim: Boolean get() = simulation.isDraggingAim
     val multiBallTimer: Float get() = simulation.multiBallTimer
     val laserBeamTimer: Float get() = simulation.laserBeamTimer
@@ -818,36 +819,56 @@ class GameEngine(
                 }
             }
 
-            // 7. Interactive Glowing Neon Paddle (visible during shooting or while power-ups active)
-            // The paddle only matters when it can catch a capsule, bounce balls (wide paddle)
-            // or fire lasers, so it is hidden otherwise to keep the arena clean.
-            val showPaddle = simulation.fallingPowerUps.isNotEmpty() ||
-                simulation.paddleExpandTimer > 0f ||
-                simulation.laserBeamTimer > 0f
-            if (showPaddle) {
+            // 7. Compulsory Interactive Glowing Neon Cyan Paddle Bar (always visible & active!)
+            run {
+                val bounce = simulation.paddleBounceAnim
+                val launchPulse = simulation.paddleLaunchPulse
                 val px = ox + simulation.paddleX * cw
-                val py = oy + simulation.paddleY * ch
-                val pHalfW = simulation.paddleWidth * 0.5f * cw
-                val pHalfH = cs * 0.14f
+                // Smooth elastic spring dip when a ball rebounds off the paddle
+                val py = oy + simulation.paddleY * ch + bounce * cs * 0.09f
+                val pHalfW = simulation.paddleWidth * 0.5f * cw + bounce * cs * 0.05f
+                val pHalfH = cs * 0.145f
                 val pCorner = pHalfH
                 val isExpanded = simulation.paddleExpandTimer > 0f
                 val isLaser = simulation.laserBeamTimer > 0f
                 val paddleRgb = when {
-                    isExpanded -> 0x0038BDF8
                     isLaser -> 0x004ADE80
-                    else -> 0x00A855F7
+                    isExpanded -> 0x0022D3EE
+                    else -> 0x0038BDF8
                 }
                 val pf = cache.paddleFillPaint
                 val ps = cache.paddleStrokePaint
-                // Soft glow aura
-                pf.color = (if (isExpanded) 0x52 else 0x36) shl 24 or paddleRgb
-                nc.drawRoundRect(px - pHalfW - 4f, py - pHalfH - 4f, px + pHalfW + 4f, py + pHalfH + 4f, pCorner + 4f, pCorner + 4f, pf)
-                // Core neon bar
-                pf.color = (0xD8 shl 24) or paddleRgb
+                // Wide subtle outer horizontal neon glow aura (brightens on catch/launch!)
+                val auraAlpha = ((if (isExpanded) 0x48 else 0x32) + (bounce * 68f + launchPulse * 34f).toInt()).coerceAtMost(0x98)
+                val auraPadX = 8f + bounce * 6f
+                val auraPadY = 4f + bounce * 3f
+                pf.color = (auraAlpha shl 24) or paddleRgb
+                nc.drawRoundRect(
+                    px - pHalfW - auraPadX,
+                    py - pHalfH - auraPadY,
+                    px + pHalfW + auraPadX,
+                    py + pHalfH + auraPadY,
+                    pCorner + 5f,
+                    pCorner + 5f,
+                    pf
+                )
+                // Glossy solid neon cyan paddle bar
+                pf.color = (0xEE shl 24) or paddleRgb
                 nc.drawRoundRect(px - pHalfW, py - pHalfH, px + pHalfW, py + pHalfH, pCorner, pCorner, pf)
-                // Bright white energy rim
-                ps.strokeWidth = 2.0f * density
-                ps.color = if (isExpanded) 0xFFE0F2FE.toInt() else android.graphics.Color.WHITE
+                // Bright glossy top sheen strip
+                pf.color = if (bounce > 0.25f) 0xE6FFFFFF.toInt() else 0x99E0F2FE.toInt()
+                nc.drawRoundRect(
+                    px - pHalfW * 0.86f,
+                    py - pHalfH * 0.72f,
+                    px + pHalfW * 0.86f,
+                    py - pHalfH * 0.12f,
+                    pCorner * 0.6f,
+                    pCorner * 0.6f,
+                    pf
+                )
+                // Crisp glowing rim
+                ps.strokeWidth = (if (isExpanded || bounce > 0.2f) 2.3f else 1.8f) * density
+                ps.color = if (isExpanded) 0xFFFDE047.toInt() else 0xFFE0F2FE.toInt()
                 nc.drawRoundRect(px - pHalfW, py - pHalfH, px + pHalfW, py + pHalfH, pCorner, pCorner, ps)
                 // Twin neon-green laser emitter tips when LASER_BEAM bonus is active
                 if (isLaser) {
@@ -861,12 +882,28 @@ class GameEngine(
                 }
             }
 
-            // 8. Flying Balls & Floor Launch Anchor (ULTRA-FAST single-blit pre-baked sprites!)
+            // 8. Flying Balls with Silky Glowing Comet Trails & Floor Launch Anchor
             val balls = simulation.balls
             val bmpPaint = cache.bitmapPaint
+            val trailPaint = cache.aimDotPaint
+            val trailRgb = (skin.glowArgb and 0x00FFFFFFL).toInt()
             for (i in 0 until balls.size) {
                 val ball = balls[i]
                 if (!ball.active) continue
+                val tc = ball.trailCount
+                if (tc > 0 && !ball.gathering) {
+                    for (t in tc - 1 downTo 0) {
+                        val frac = 1f - (t + 1) / (tc + 1f)
+                        val alpha = (frac * frac * 115f).toInt().coerceIn(8, 120)
+                        trailPaint.color = (alpha shl 24) or trailRgb
+                        nc.drawCircle(
+                            ox + ball.trailX[t] * cw,
+                            oy + ball.trailY[t] * ch,
+                            ballRadiusPx * (0.45f + frac * 0.52f),
+                            trailPaint
+                        )
+                    }
+                }
                 nc.drawBitmap(
                     ballSprite,
                     ox + ball.x * cw - spriteHalf,
@@ -875,9 +912,15 @@ class GameEngine(
                 )
             }
 
+            val showAnchorBall = simulation.phase == TurnPhase.AIMING ||
+                simulation.phase == TurnPhase.DROPPING ||
+                simulation.ballsRemainingToSpawn > 0 ||
+                simulation.nextLaunchX != null
             val anchorX = ox + (simulation.nextLaunchX ?: simulation.launchX) * cw
-            val anchorY = oy + simulation.floorY * ch
-            nc.drawBitmap(ballSprite, anchorX - spriteHalf, anchorY - spriteHalf, bmpPaint)
+            val anchorY = oy + simulation.launchY * ch
+            if (showAnchorBall) {
+                nc.drawBitmap(ballSprite, anchorX - spriteHalf, anchorY - spriteHalf, bmpPaint)
+            }
 
             val labelPaint = cache.labelPaint
             val countVal = simulation.displayedBallCount
@@ -1003,8 +1046,8 @@ fun BrickBreakerCanvas(
                                 change.consume()
                             }
                         }
-                    } else if (engine.phase == TurnPhase.SHOOTING) {
-                        // Slide the glowing neon paddle smoothly to catch falling power-ups & rally balls!
+                    } else if (engine.phase == TurnPhase.SHOOTING || engine.phase == TurnPhase.DROPPING) {
+                        // Slide the compulsory glowing neon paddle smoothly to bounce balls & catch power-ups!
                         engine.movePaddleFromCanvasPoint(
                             posX = down.position.x,
                             canvasWidth = canvasSize.width.toFloat(),

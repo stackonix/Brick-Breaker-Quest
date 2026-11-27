@@ -100,6 +100,10 @@ class BallEntity {
     var vy: Float = 0f
     var active: Boolean = true
     var returning: Boolean = false
+    var gathering: Boolean = false
+    val trailX = FloatArray(4)
+    val trailY = FloatArray(4)
+    var trailCount: Int = 0
 }
 
 /** Pooled particle. [rgb] is 0x00RRGGBB (alpha is applied by the renderer). */
@@ -134,6 +138,7 @@ enum class TurnPhase {
     AIMING,
     SHOOTING,
     DROPPING,
+    CLEARING,
     STAGE_CLEAR,
     GAME_OVER
 }
@@ -194,6 +199,15 @@ class BrickQuestEngine(
         private set
     val floorY: Float get() = arenaRows - 0.30f
     val paddleY: Float get() = floorY - 0.14f
+    val launchY: Float get() = paddleY - BALL_RADIUS - 0.14f
+
+    var paddleBounceAnim: Float = 0f
+        private set
+    var paddleLaunchPulse: Float = 0f
+        private set
+
+    private var stageClearDelaySec: Float = 0f
+    private var emptyBoardRecallTriggered: Boolean = false
 
     /** Row of the danger line. A brick reaching it after a drop = game over. */
     val dangerRow: Int get() = dangerRowFor(arenaRows)
@@ -256,7 +270,8 @@ class BrickQuestEngine(
     var aimAngleRad: Float = (-PI / 2.0).toFloat()
 
     // Shot streaming state
-    private var ballsRemainingToSpawn: Int = 0
+    var ballsRemainingToSpawn: Int = 0
+        private set
     private var spawnCooldown: Float = 0f
     private var spawnInterval: Float = 0.04f
     private var shotVx: Float = 0f
@@ -313,6 +328,7 @@ class BrickQuestEngine(
 
     val displayedBallCount: Int
         get() {
+            if (phase == TurnPhase.CLEARING || phase == TurnPhase.STAGE_CLEAR) return 0
             if (phase != TurnPhase.SHOOTING) return totalBalls + bonusBallsThisTurn
             var active = 0
             for (i in 0 until balls.size) {
@@ -419,6 +435,8 @@ class BrickQuestEngine(
         b.vy = vy
         b.active = true
         b.returning = false
+        b.gathering = false
+        b.trailCount = 0
         return b
     }
 
@@ -437,14 +455,14 @@ class BrickQuestEngine(
         if (phase != TurnPhase.AIMING) return
         val dx: Float
         val dy: Float
-        if (normY <= floorY - 0.15f) {
+        if (normY <= launchY - 0.12f) {
             // Direct point-at-target aiming
             dx = normX - launchX
-            dy = normY - floorY
+            dy = normY - launchY
         } else {
-            // Slingshot pullback below floor
+            // Slingshot pullback below paddle
             dx = launchX - normX
-            dy = floorY - normY
+            dy = launchY - normY
         }
         if (hypot(dx, dy) < 0.18f) return
         var angle = atan2(dy, dx)
@@ -478,6 +496,7 @@ class BrickQuestEngine(
         shotElapsedSec = 0f
         autoTurboApplied = false
         autoRecallApplied = false
+        emptyBoardRecallTriggered = false
         paddleX = launchX.coerceIn(paddleWidth * 0.5f, ARENA_COLS - paddleWidth * 0.5f)
 
         shotVx = cos(aimAngleRad) * BALL_SPEED
@@ -528,7 +547,9 @@ class BrickQuestEngine(
 
         val targets = bricks.filter { it.row == lowestRow }
         for (b in targets) damageBrick(b, damage = b.hp, fromChain = true)
-        checkInstantStageClear()
+        if (mode == BrickQuestMode.STAGE && bricks.isEmpty() && phase == TurnPhase.AIMING) {
+            beginStageClearSequence(delaySec = 0.55f)
+        }
         aimPreviewDirty = true
         return true
     }
@@ -558,7 +579,7 @@ class BrickQuestEngine(
         aimPreviewDirty = false
         var count = 0
         var cx = launchX
-        var cy = floorY
+        var cy = launchY
         var dx = cos(aimAngleRad)
         var dy = sin(aimAngleRad)
         val step = 0.30f
@@ -644,14 +665,30 @@ class BrickQuestEngine(
                 val speedMult = if (turboSpeed) TURBO_MULT else 1.0f
                 val effectiveDt = dt * speedMult
 
-                // Spawn ball chain tightly and smoothly
+                // Spawn ball chain rhythmically and smoothly from on top of the paddle
                 if (ballsRemainingToSpawn > 0) {
                     spawnCooldown -= effectiveDt
                     while (spawnCooldown <= 0f && ballsRemainingToSpawn > 0) {
-                        balls.add(obtainBall(launchX, floorY, shotVx, shotVy))
+                        balls.add(obtainBall(launchX, launchY, shotVx, shotVy))
                         ballsRemainingToSpawn--
                         spawnCooldown += spawnInterval
+                        paddleLaunchPulse = 1f
                     }
+                }
+
+                // Record smooth per-frame trail positions BEFORE stepping sub-steps
+                for (i in 0 until balls.size) {
+                    val b = balls[i]
+                    if (!b.active) continue
+                    val tc = b.trailCount
+                    val shiftEnd = if (tc < 4) tc else 3
+                    for (t in shiftEnd downTo 1) {
+                        b.trailX[t] = b.trailX[t - 1]
+                        b.trailY[t] = b.trailY[t - 1]
+                    }
+                    b.trailX[0] = b.x
+                    b.trailY[0] = b.y
+                    if (tc < 4) b.trailCount = tc + 1
                 }
 
                 // Sub-steps keep each move below one ball diameter (no tunneling).
@@ -661,14 +698,13 @@ class BrickQuestEngine(
                     stepBalls(subDt)
                 }
 
-                // Check instant clear if lasers/multi-ball destroyed the final brick
-                if (mode == BrickQuestMode.STAGE && bricks.isEmpty()) {
-                    checkInstantStageClear()
-                    return
-                }
-
-                // Check turn completion without iterator allocation
+                // Wait until EVERY ball in the volley has spawned and returned to the floor
+                // (never cut off the ball count or brick shatter prematurely!).
                 if (ballsRemainingToSpawn == 0) {
+                    if (mode == BrickQuestMode.STAGE && bricks.isEmpty() && !emptyBoardRecallTriggered) {
+                        emptyBoardRecallTriggered = true
+                        recallActiveBallsOnly()
+                    }
                     var anyActive = false
                     for (i in 0 until balls.size) {
                         if (balls[i].active) {
@@ -698,6 +734,13 @@ class BrickQuestEngine(
                     phase = if (dangerHit) TurnPhase.GAME_OVER else TurnPhase.AIMING
                 }
             }
+
+            TurnPhase.CLEARING -> {
+                stageClearDelaySec = (stageClearDelaySec - dt).coerceAtLeast(0f)
+                if (stageClearDelaySec <= 0f) {
+                    phase = TurnPhase.STAGE_CLEAR
+                }
+            }
         }
     }
 
@@ -722,6 +765,12 @@ class BrickQuestEngine(
     }
 
     private fun updateVisualFx(dt: Float) {
+        if (paddleBounceAnim > 0f) {
+            paddleBounceAnim = (paddleBounceAnim - dt * 5.8f).coerceAtLeast(0f)
+        }
+        if (paddleLaunchPulse > 0f) {
+            paddleLaunchPulse = (paddleLaunchPulse - dt * 6.5f).coerceAtLeast(0f)
+        }
         for (i in 0 until bricks.size) {
             val b = bricks[i]
             if (b.hitFlash > 0f) {
@@ -765,20 +814,57 @@ class BrickQuestEngine(
         val pickupHitR = BALL_RADIUS + 0.30f
         val pickupHitRSq = pickupHitR * pickupHitR
 
+        val catchZoneTop = arenaRows * 0.44f
+        val catchZoneSpan = (paddleY - catchZoneTop).coerceAtLeast(1f)
+
         for (bIndex in 0 until balls.size) {
             val ball = balls[bIndex]
             if (!ball.active) continue
 
-            ball.x += ball.vx * dt
-            ball.y += ball.vy * dt
-
-            if (ball.returning) {
-                if (ball.y >= floorY) {
-                    ball.y = floorY
+            // Smooth horizontal floor-gather slide into next launch anchor
+            if (ball.gathering) {
+                val targetX = nextLaunchX ?: launchX
+                val dx = targetX - ball.x
+                val maxMove = GATHER_SPEED * dt
+                if (abs(dx) <= maxMove) {
+                    ball.x = targetX
+                    ball.y = launchY
                     ball.active = false
+                } else {
+                    ball.x += if (dx > 0f) maxMove else -maxMove
+                    ball.y = launchY
                 }
                 continue
             }
+
+            if (ball.returning) {
+                ball.x += ball.vx * dt
+                ball.y += ball.vy * dt
+                if (ball.y >= launchY) {
+                    ball.y = launchY
+                    val targetX = nextLaunchX ?: launchX
+                    if (abs(ball.x - targetX) <= 0.25f) {
+                        ball.x = targetX
+                        ball.active = false
+                    } else {
+                        ball.gathering = true
+                    }
+                }
+                continue
+            }
+
+            // Gentle catch-assist glide: balls coming downward in the lower half ease down
+            // smoothly (~0.72x near the paddle) so the player always has comfortable time to
+            // slide the paddle bar over and rebounce them!
+            val stepScale = if (ball.vy > 0f && ball.y > catchZoneTop && bricks.isNotEmpty()) {
+                val progress = ((ball.y - catchZoneTop) / catchZoneSpan).coerceIn(0f, 1f)
+                1f - progress * 0.28f
+            } else {
+                1f
+            }
+
+            ball.x += ball.vx * dt * stepScale
+            ball.y += ball.vy * dt * stepScale
 
             // Left / Right walls
             if (ball.x - BALL_RADIUS < 0f) {
@@ -795,32 +881,38 @@ class BrickQuestEngine(
                 ball.vy = abs(ball.vy)
             }
 
-            // Expanded Paddle Deflection (active while PADDLE_EXPAND bonus timer > 0!)
-            if (paddleExpandTimer > 0f && ball.vy > 0f &&
-                ball.y + BALL_RADIUS >= paddleY && ball.y - BALL_RADIUS <= floorY + 0.1f
+            // Compulsory Interactive Bottom Paddle Rebound (always active while bricks remain!)
+            if (bricks.isNotEmpty() && ball.vy > 0f &&
+                ball.y + BALL_RADIUS >= paddleY - 0.16f && ball.y - BALL_RADIUS <= floorY + 0.16f
             ) {
                 val halfW = paddleWidth * 0.5f + BALL_RADIUS
                 val dxPaddle = ball.x - paddleX
                 if (abs(dxPaddle) <= halfW) {
-                    val speed = sqrt(ball.vx * ball.vx + ball.vy * ball.vy).coerceAtLeast(18f)
-                    val ratio = (dxPaddle / halfW).coerceIn(-0.92f, 0.92f)
-                    // Aimable rebound angle between -152 deg and -28 deg
-                    val reboundAngle = (-PI / 2.0).toFloat() + ratio * 1.08f
-                    ball.y = paddleY - BALL_RADIUS - 0.01f
+                    val speed = sqrt(ball.vx * ball.vx + ball.vy * ball.vy).coerceAtLeast(BALL_SPEED)
+                    val ratio = (dxPaddle / halfW).coerceIn(-0.90f, 0.90f)
+                    // Smooth aimable rebound angle between -150 deg and -30 deg
+                    val reboundAngle = (-PI / 2.0).toFloat() + ratio * 1.04f
+                    ball.y = paddleY - 0.16f - BALL_RADIUS - 0.01f
                     ball.vx = cos(reboundAngle) * speed
                     ball.vy = sin(reboundAngle) * speed
+                    paddleBounceAnim = 1f
                     hitSoundCounter++
-                    spawnSquareBurst(ball.x, paddleY, 0x38BDF8, count = 3)
+                    spawnSquareBurst(ball.x, paddleY, 0x38BDF8, count = 5)
                     continue
                 }
             }
 
-            // Floor return
+            // Floor return -> smooth slide animation into the launch position
             if (ball.y >= floorY && ball.vy > 0f) {
-                ball.y = floorY
-                ball.active = false
+                ball.y = launchY
                 if (nextLaunchX == null) {
                     nextLaunchX = ball.x.coerceIn(0.65f, ARENA_COLS - 0.65f)
+                    ball.x = nextLaunchX!!
+                    ball.active = false
+                } else {
+                    ball.gathering = true
+                    ball.vx = 0f
+                    ball.vy = 0f
                 }
                 continue
             }
@@ -895,7 +987,7 @@ class BrickQuestEngine(
                 }
 
                 // Anti-horizontal-trap nudge so balls never bounce sideways infinitely
-                val speed = sqrt(ball.vx * ball.vx + ball.vy * ball.vy).coerceAtLeast(16f)
+                val speed = sqrt(ball.vx * ball.vx + ball.vy * ball.vy).coerceAtLeast(BALL_SPEED)
                 if (abs(ball.vy) < speed * 0.14f) {
                     val signY = if (ball.vy >= 0f) 1f else -1f
                     ball.vy = signY * speed * 0.18f
@@ -983,7 +1075,7 @@ class BrickQuestEngine(
                     val src = balls[i]
                     if (!src.active || src.returning) continue
                     val angle = atan2(src.vy, src.vx)
-                    val speed = sqrt(src.vx * src.vx + src.vy * src.vy).coerceAtLeast(18f)
+                    val speed = sqrt(src.vx * src.vx + src.vy * src.vy).coerceAtLeast(BALL_SPEED)
                     val spread = if (spawned % 2 == 0) 0.24f else -0.24f
                     val newA = angle + spread
                     balls.add(obtainBall(src.x, src.y, cos(newA) * speed, sin(newA) * speed))
@@ -1027,7 +1119,6 @@ class BrickQuestEngine(
         // Hit lowest brick intersecting each laser beam column
         hitLowestBrickAtX(leftX)
         hitLowestBrickAtX(rightX)
-        checkInstantStageClear()
     }
 
     private fun hitLowestBrickAtX(beamX: Float) {
@@ -1152,11 +1243,32 @@ class BrickQuestEngine(
         }
     }
 
-    private fun checkInstantStageClear() {
-        if (mode == BrickQuestMode.STAGE && bricks.isEmpty() && phase != TurnPhase.STAGE_CLEAR) {
+    /**
+     * Smoothly guides already-flying balls back to the floor once the last brick is broken
+     * and all volley balls have spawned, so the turn completes cleanly without bouncing on air.
+     */
+    private fun recallActiveBallsOnly() {
+        val targetX = nextLaunchX ?: launchX
+        for (i in 0 until balls.size) {
+            val b = balls[i]
+            if (!b.active) continue
+            b.returning = true
+            val dx = targetX - b.x
+            val dy = floorY - b.y
+            val dist = hypot(dx, dy).coerceAtLeast(0.01f)
+            b.vx = (dx / dist) * RECALL_SPEED
+            b.vy = (dy / dist) * RECALL_SPEED
+        }
+    }
+
+    private fun beginStageClearSequence(delaySec: Float) {
+        if (mode == BrickQuestMode.STAGE && bricks.isEmpty() &&
+            phase != TurnPhase.STAGE_CLEAR && phase != TurnPhase.CLEARING
+        ) {
             recycleAllBalls()
             ballsRemainingToSpawn = 0
-            phase = TurnPhase.STAGE_CLEAR
+            stageClearDelaySec = delaySec
+            phase = TurnPhase.CLEARING
         }
     }
 
@@ -1169,13 +1281,14 @@ class BrickQuestEngine(
         turboSpeed = false
         launchX = nextLaunchX ?: launchX
         nextLaunchX = null
+        paddleX = launchX.coerceIn(paddleWidth * 0.5f, ARENA_COLS - paddleWidth * 0.5f)
         turnNumber++
 
         // Remove collected +1 ball pickups and triggered laser orbs
         pickups.removeAll { it.collected || it.triggeredThisTurn }
 
         if (mode == BrickQuestMode.STAGE && bricks.isEmpty()) {
-            phase = TurnPhase.STAGE_CLEAR
+            beginStageClearSequence(delaySec = 0.35f)
             return
         }
 
@@ -1200,23 +1313,24 @@ class BrickQuestEngine(
     }
 
     companion object {
-        const val BASE_PADDLE_WIDTH = 2.15f
-        const val EXPANDED_PADDLE_WIDTH = 3.90f
+        const val BASE_PADDLE_WIDTH = 2.75f
+        const val EXPANDED_PADDLE_WIDTH = 4.30f
         const val MULTI_BALL_DURATION_SEC = 8.0f
         const val LASER_BEAM_DURATION_SEC = 7.0f
         const val PADDLE_EXPAND_DURATION_SEC = 10.0f
         private const val MAX_ACTIVE_BALLS = 80
         private const val MAX_PARTICLES = 56
 
-        /** Ball speed in grid cells per second (was 21). */
-        const val BALL_SPEED = 24.0f
-        private const val RECALL_SPEED = 34f
-        const val TURBO_MULT = 2.35f
-        private const val VOLLEY_LAUNCH_SEC = 1.1f
-        private const val MIN_SPAWN_INTERVAL = 0.024f
-        private const val MAX_SPAWN_INTERVAL = 0.045f
-        const val AUTO_TURBO_AFTER_SEC = 5.5f
-        const val AUTO_RECALL_AFTER_SEC = 22f
+        /** Smooth, readable arcade ball speed in grid cells per second. */
+        const val BALL_SPEED = 9.8f
+        private const val RECALL_SPEED = 16.5f
+        private const val GATHER_SPEED = 14.0f
+        const val TURBO_MULT = 1.65f
+        private const val VOLLEY_LAUNCH_SEC = 2.2f
+        private const val MIN_SPAWN_INTERVAL = 0.068f
+        private const val MAX_SPAWN_INTERVAL = 0.095f
+        const val AUTO_TURBO_AFTER_SEC = 18.0f
+        const val AUTO_RECALL_AFTER_SEC = 34f
 
         private val MIN_AIM_ANGLE = (-170.0 * PI / 180.0).toFloat()
         private val MAX_AIM_ANGLE = (-10.0 * PI / 180.0).toFloat()
