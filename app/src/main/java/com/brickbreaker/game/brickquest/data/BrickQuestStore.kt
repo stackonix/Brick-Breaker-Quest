@@ -1,6 +1,7 @@
 package com.brickbreaker.game.brickquest.data
 
 import android.content.Context
+import androidx.compose.runtime.Immutable
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -40,6 +41,7 @@ enum class BallSkin(
     LEGEND_WHITE("Legend", 2000, 0xFFF8FAFC, 0xFFE2E8F0, 0xFFFFFFFF)
 }
 
+@Immutable
 data class BrickQuestProgress(
     val highestUnlockedStage: Int = 1,
     val stageStars: Map<Int, Int> = emptyMap(),
